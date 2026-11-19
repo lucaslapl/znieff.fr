@@ -1,6 +1,6 @@
 # Portail ZNIEFF
 
-Site public : **<https://znieff.fr>** (itération (a) — socle en développement).
+Site public : **<https://znieff.fr>** (itération (b) — socle import + fiches).
 Même équipe que [l'Observatoire des ABC](https://github.com/lucaslapl/Observatoire-des-ABC) :
 faits bruts sourcés, jamais d'indicateur composite, sources créditées.
 

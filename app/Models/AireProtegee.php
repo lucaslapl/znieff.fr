@@ -4,15 +4,21 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Support\Carbon;
 
 /**
  * Aire protégée du catalogue APA-INPN : un zonage juridique (à la
  * différence d'une ZNIEFF, inventaire scientifique).
  *
  * @property string $id ex. FR3800583
+ * @property Carbon|null $date_crea_sign
+ * @property Carbon|null $date_modif_geo
  */
 class AireProtegee extends Model
 {
+    // L'inflecteur ne devine pas « aires_protegees » depuis AireProtegee.
+    protected $table = 'aires_protegees';
+
     protected $primaryKey = 'id';
 
     protected $keyType = 'string';

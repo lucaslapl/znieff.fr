@@ -6,12 +6,15 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Carbon;
 
 /**
  * Zonage ZNIEFF (type I ou II) du référentiel INPN.
  *
  * @property string $id identifiant national (NM_SFFZN), ex. 230009093
  * @property string $famille z1 | z2
+ * @property Carbon|null $date_crea
+ * @property Carbon|null $date_modif_geo
  */
 class Zonage extends Model
 {

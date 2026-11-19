@@ -4,11 +4,14 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Support\Carbon;
 
 /**
  * Site Natura 2000 (SIC/ZSC ou ZPS), référentiel INPN.
  *
  * @property string $code ex. FR8212001
+ * @property Carbon|null $date_designation
+ * @property Carbon|null $date_modif_geo
  */
 class NaturaSite extends Model
 {

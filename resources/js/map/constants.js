@@ -18,6 +18,16 @@ export const FAMLABEL = {
 
 export const COMMUNE_STYLE = { color: '#41704f', weight: 1, fill: false };
 
+// Contour de la commune comme OBJET PRINCIPAL d'une fiche (mini-carte) :
+// trait vert + très léger remplissage, la géométrie reste lisible sur les
+// deux fonds.
+export const styleCommune = () => ({
+    color: '#41704f',
+    weight: 2,
+    fillColor: '#eaf2ea',
+    fillOpacity: 0.35,
+});
+
 // Plan IGN v2 : WMTS libres de la Géoplateforme, SANS clé.
 export const PLAN_IGN_URL =
     'https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0' +

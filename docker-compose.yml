@@ -1,0 +1,109 @@
+services:
+    # --- Application Laravel (développement local, http://localhost:8010) ---
+    app:
+        build:
+            context: .
+            dockerfile: docker/php/Dockerfile
+        container_name: znieff-app
+        restart: unless-stopped
+        depends_on:
+            postgis:
+                condition: service_healthy
+        environment:
+            # Surcharge le .env : en interne, la base est joignable via le
+            # nom du service (les variables d'environnement priment sur .env).
+            DB_HOST: postgis
+            DB_PORT: 5432
+            # 8010 : 8000 est déjà pris par le conteneur abc-app de
+            # l'Observatoire des ABC sur cet hôte.
+            APP_URL: http://localhost:8010
+            # Données INPN montées en lecture seule depuis le poste hôte
+            # (référentiels de l'Observatoire des ABC, hors git).
+            PORTAIL_INPN_DIR: /data/inpn-data
+        ports:
+            - "8010:8000"
+        volumes:
+            - .:/var/www/html
+            - znieff_vendor:/var/www/html/vendor
+            # Données brutes INPN (1,5 Go, jamais dans git) : import local
+            # uniquement, en lecture seule.
+            - C:/wamp64/www/abc_scrapper/data/inpn-data:/data/inpn-data:ro
+
+    # --- SSR Inertia (profil ssr) : rendu serveur comme en production ---
+    # Usage : docker compose --profile ssr up -d app ssr
+    ssr:
+        image: node:24-bookworm-slim
+        profiles: ["ssr"]
+        working_dir: /var/www/html
+        ports:
+            - "13914:13714"
+        environment:
+            SSR_PORT: 13714
+        volumes:
+            - .:/var/www/html
+            - znieff_node_modules:/var/www/html/node_modules
+            # vendor requis : resources/js/app.js importe Ziggy depuis vendor/.
+            - znieff_vendor:/var/www/html/vendor
+        command: sh -c "npm install --no-audit --no-fund && npm run build && node bootstrap/ssr/ssr.js"
+
+    # --- Frontend : build one-shot des assets (npm run build) ---
+    # Usage : docker compose --profile build run --rm assets
+    assets:
+        image: node:24-bookworm-slim
+        profiles: ["build"]
+        working_dir: /var/www/html
+        volumes:
+            - .:/var/www/html
+            - znieff_node_modules:/var/www/html/node_modules
+            # vendor requis : resources/js/app.js importe Ziggy depuis vendor/.
+            - znieff_vendor:/var/www/html/vendor
+        command: sh -c "npm install --no-audit --no-fund && npm run build"
+
+    # --- Frontend : serveur Vite avec HMR (profil hmr) ---
+    # Usage : docker compose --profile hmr up vite
+    vite:
+        image: node:24-bookworm-slim
+        profiles: ["hmr"]
+        working_dir: /var/www/html
+        ports:
+            - "5173:5173"
+        environment:
+            HOST: 0.0.0.0
+            VITE_DEV_ORIGIN: http://localhost:5173
+        volumes:
+            - .:/var/www/html
+            - znieff_node_modules:/var/www/html/node_modules
+            # vendor requis : resources/js/app.js importe Ziggy depuis vendor/.
+            - znieff_vendor:/var/www/html/vendor
+        command: sh -c "npm install --no-audit --no-fund && npm run dev -- --host 0.0.0.0"
+
+    # --- Base de données PostgreSQL 16 + PostGIS (LOCAL UNIQUEMENT) ---
+    # Aucune géométrie ne quitte ce conteneur : les intersections sont
+    # précalculées par portail:import-inpn puis exportées en SQL portable
+    # (portail:export-sql) et GeoJSON. La production est un MySQL mutualisé
+    # sans extension spatiale.
+    postgis:
+        image: postgis/postgis:16-3.4
+        container_name: znieff-postgis
+        restart: unless-stopped
+        environment:
+            POSTGRES_DB: znieff
+            POSTGRES_USER: znieff
+            POSTGRES_PASSWORD: znieff
+        ports:
+            # 5434 hôte : 5433 est déjà pris par le conteneur abc-postgis de
+            # l'Observatoire des ABC. Accès psql depuis Windows :
+            # psql -h localhost -p 5434 -U znieff -d znieff
+            - "5434:5432"
+        volumes:
+            - znieff_pgdata:/var/lib/postgresql/data
+        healthcheck:
+            test: ["CMD-SHELL", "pg_isready -U znieff -d znieff"]
+            interval: 5s
+            timeout: 5s
+            retries: 10
+
+volumes:
+    znieff_pgdata:
+    znieff_vendor:
+    znieff_node_modules:

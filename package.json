@@ -1,0 +1,26 @@
+{
+    "$schema": "https://www.schemastore.org/package.json",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "build": "vite build && vite build --ssr",
+        "dev": "vite",
+        "test:js": "node --test tests/js/*.test.mjs"
+    },
+    "dependencies": {
+        "@inertiajs/vue3": "2.3.27",
+        "@vitejs/plugin-vue": "^6.0.8",
+        "axios": "^1.19.0",
+        "leaflet": "^1.9.4",
+        "vue": "3.5.43"
+    },
+    "devDependencies": {
+        "@vue/server-renderer": "3.5.43",
+        "laravel-vite-plugin": "^3.1",
+        "vite": "^8.0.0"
+    },
+    "overrides": {
+        "vue": "3.5.43"
+    },
+    "license": "AGPL-3.0-only"
+}

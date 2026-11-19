@@ -1,0 +1,205 @@
+@import 'leaflet/dist/leaflet.css';
+
+/* ============================================================
+   Charte « herbier » du Portail ZNIEFF — reprise fidèle de la
+   maquette validée (portail-znieff-patrimoine-prototype-html.html).
+   Typographie système, langage clair, aucun superflu.
+   ============================================================ */
+:root {
+    --vert-fonce: #24422e;
+    --vert: #3d6b4a;
+    --vert-clair: #eaf2ea;
+    --vert-tres-clair: #f6faf5;
+    --ocre: #b08a3e;
+    --terre: #8a6f4d;
+    --encre: #1f2937;
+    --gris: #6b7280;
+    --gris-clair: #f3f4f6;
+    --bord: #dde5dd;
+    --blanc: #ffffff;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    color: var(--encre);
+    background: var(--vert-tres-clair);
+    line-height: 1.6;
+}
+a { color: var(--vert); }
+a:hover { text-decoration: underline; }
+
+/* ---------- Header ---------- */
+header.site {
+    background: var(--vert-fonce);
+    color: #fff;
+    padding: 0.75rem 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 2rem;
+    flex-wrap: wrap;
+}
+.brand { display: flex; align-items: center; gap: 0.6rem; font-weight: 700; font-size: 1.05rem; letter-spacing: 0.02em; }
+.brand svg { display: block; }
+.brand a { color: #fff; text-decoration: none; }
+.brand small { font-weight: 400; opacity: 0.7; display: block; font-size: 0.68rem; letter-spacing: 0.04em; text-transform: uppercase; }
+nav.main { display: flex; gap: 1.25rem; flex-wrap: wrap; }
+nav.main a { color: #d6e4d8; text-decoration: none; font-size: 0.92rem; }
+nav.main a.active, nav.main a:hover { color: #fff; text-decoration: underline; }
+.header-right { margin-left: auto; font-size: 0.8rem; opacity: 0.75; }
+
+main { max-width: 1060px; margin: 0 auto; padding: 1.75rem 1.5rem 3rem; }
+
+/* ---------- Notions communes ---------- */
+.breadcrumb { font-size: 0.82rem; color: var(--gris); margin-bottom: 0.75rem; }
+.breadcrumb a { color: var(--gris); }
+h1 { font-size: 1.7rem; color: var(--vert-fonce); margin-bottom: 0.35rem; }
+h2 { font-size: 1.15rem; color: var(--vert-fonce); margin: 2rem 0 0.6rem; padding-bottom: 0.3rem; border-bottom: 2px solid var(--bord); }
+h3 { font-size: 0.98rem; color: var(--vert); margin: 1.1rem 0 0.4rem; }
+.lead { color: var(--gris); font-size: 1rem; max-width: 75ch; }
+.plate {
+    background: var(--blanc);
+    border: 1px solid var(--bord);
+    border-radius: 10px;
+    padding: 1.25rem 1.5rem;
+    margin-top: 1rem;
+}
+.badge {
+    display: inline-block;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    border-radius: 999px;
+    padding: 0.18rem 0.7rem;
+    margin-right: 0.4rem;
+    white-space: nowrap;
+}
+.badge.znieff1 { background: #fbeedd; color: #8a6415; border: 1px solid #eccf9b; }
+.badge.znieff2 { background: #e4efe6; color: #2e5c3a; border: 1px solid #bcd7c1; }
+.badge.natura  { background: #dcedf2; color: #1e5a72; border: 1px solid #b3d4e0; }
+.badge.abc     { background: #efe6f5; color: #5b3d7a; border: 1px solid #d5c3e6; }
+.badge.ap      { background: #ece1f2; color: #4a2d63; border: 1px solid #cbb0d9; }
+
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.75rem; margin-top: 1rem; }
+.stat { background: var(--blanc); border: 1px solid var(--bord); border-radius: 10px; padding: 0.9rem 1rem; text-align: center; }
+.stat .num { font-size: 1.45rem; font-weight: 700; color: var(--vert); }
+.stat .lab { font-size: 0.75rem; color: var(--gris); }
+
+table { width: 100%; border-collapse: collapse; font-size: 0.88rem; margin-top: 0.6rem; }
+th, td { text-align: left; padding: 0.5rem 0.65rem; border-bottom: 1px solid var(--bord); vertical-align: top; }
+th { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--gris); background: var(--vert-tres-clair); }
+tr.group td { background: var(--vert-clair); font-weight: 700; color: var(--vert-fonce); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; }
+.sciname { font-style: italic; }
+
+.btn {
+    display: inline-block;
+    background: var(--vert);
+    color: #fff !important;
+    border: none;
+    border-radius: 8px;
+    padding: 0.55rem 1.1rem;
+    font-size: 0.88rem;
+    cursor: pointer;
+    text-decoration: none;
+}
+.btn:hover { background: var(--vert-fonce); text-decoration: none; }
+.btn.ghost { background: transparent; color: var(--vert) !important; border: 1px solid var(--vert); }
+
+.attribution {
+    margin-top: 2rem;
+    font-size: 0.78rem;
+    color: var(--gris);
+    border-top: 1px dashed var(--bord);
+    padding-top: 0.75rem;
+    max-width: none;
+}
+
+/* ---------- Accueil ---------- */
+.hero { background: linear-gradient(160deg, var(--vert-fonce) 0%, #2f5a3c 100%); border-radius: 12px; color: #fff; padding: 2.5rem 2rem; margin-top: 1.25rem; }
+.hero h1 { color: #fff; font-size: 2rem; max-width: 22ch; }
+.hero p { max-width: 60ch; margin-top: 0.5rem; color: #d9e6db; }
+.searchbar { display: flex; gap: 0.5rem; margin-top: 1.4rem; flex-wrap: wrap; }
+.searchbar input {
+    flex: 1 1 260px;
+    border: none;
+    border-radius: 8px;
+    padding: 0.65rem 0.9rem;
+    font-size: 0.95rem;
+}
+.searchbar .btn { background: var(--ocre); }
+.searchbar .btn:hover { background: #96742f; }
+.hero .hint { font-size: 0.78rem; color: #b9cdbd; margin-top: 0.6rem; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; margin-top: 1.25rem; }
+.card { background: var(--blanc); border: 1px solid var(--bord); border-radius: 10px; padding: 1.1rem 1.2rem; }
+.card h3 { margin-top: 0; }
+.card p { font-size: 0.86rem; color: var(--gris); }
+.card a.stretched { color: var(--encre); text-decoration: none; font-weight: 600; font-size: 1rem; display: block; margin-bottom: 0.2rem; }
+.card a.stretched:hover { color: var(--vert); text-decoration: underline; }
+
+/* ---------- Départements ---------- */
+.dept-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 0.5rem; margin-top: 1rem; }
+.dept {
+    background: var(--blanc); border: 1px solid var(--bord); border-radius: 8px;
+    padding: 0.5rem 0.6rem; text-align: center; text-decoration: none; color: var(--encre);
+}
+.dept:hover { border-color: var(--vert); background: var(--vert-clair); text-decoration: none; }
+.dept b { display: block; font-size: 1rem; color: var(--vert-fonce); }
+.dept span { font-size: 0.72rem; color: var(--gris); }
+
+/* ---------- Fiches ---------- */
+.fiche-tete { display: flex; justify-content: space-between; gap: 1.5rem; flex-wrap: wrap; align-items: flex-start; }
+.chapeau {
+    background: var(--vert-clair);
+    border-left: 4px solid var(--vert);
+    padding: 0.9rem 1.1rem;
+    border-radius: 0 8px 8px 0;
+    margin-top: 1rem;
+    font-size: 0.93rem;
+    max-width: 85ch;
+}
+.mini-map {
+    background: var(--vert-clair) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Cpath d='M0 40 40 0' stroke='%23c9dbc9' stroke-width='1'/%3E%3C/svg%3E");
+    border: 1px solid var(--bord);
+    border-radius: 10px;
+    min-width: 230px;
+    min-height: 170px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--gris);
+    font-size: 0.78rem;
+}
+.kv { display: grid; grid-template-columns: 220px 1fr; gap: 0.3rem 1rem; font-size: 0.9rem; margin-top: 0.5rem; }
+.kv dt { color: var(--gris); }
+.kv dd { font-weight: 600; }
+.exports { display: flex; gap: 0.6rem; flex-wrap: wrap; margin-top: 1rem; }
+ul.communes-liste { list-style: none; margin-top: 0.4rem; }
+ul.communes-liste li { display: inline-block; background: var(--gris-clair); border-radius: 999px; padding: 0.22rem 0.8rem; margin: 0.25rem 0.25rem 0 0; font-size: 0.83rem; }
+ul.communes-liste li a { text-decoration: none; color: var(--encre); }
+ul.communes-liste li a:hover { color: var(--vert); }
+
+/* ---------- Carte (Leaflet) ---------- */
+#carte-leaflet { height: 540px; border: 1px solid var(--bord); border-radius: 10px; margin-top: 1rem; z-index: 0; }
+.carte-legende { display: flex; gap: 0.9rem; flex-wrap: wrap; align-items: center; font-size: 0.72rem; color: var(--gris); margin-top: 0.5rem; }
+.carte-legende .pastille { display: inline-block; width: 9px; height: 9px; border: 1px solid; border-radius: 2px; vertical-align: middle; margin-right: 2px; }
+.mini-carte { height: 200px; min-height: 200px; }
+
+/* ---------- Footer ---------- */
+footer.site { background: var(--gris-clair); border-top: 1px solid var(--bord); padding: 1.5rem; margin-top: 3rem; font-size: 0.8rem; color: var(--gris); }
+footer.site .inner { max-width: 1060px; margin: 0 auto; display: flex; gap: 2rem; flex-wrap: wrap; justify-content: space-between; }
+footer.site a { color: var(--vert-fonce); }
+
+.note {
+    background: #fdf6e3;
+    border: 1px solid #e8d9a0;
+    border-radius: 8px;
+    font-size: 0.78rem;
+    color: #7a6520;
+    padding: 0.5rem 0.8rem;
+    margin-top: 1rem;
+}
+
+@media (max-width: 640px) {
+    .kv { grid-template-columns: 1fr; }
+    .kv dd { font-weight: 400; }
+}

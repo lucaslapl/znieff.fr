@@ -1,0 +1,30 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "codgeo": "27375", "libgeo": "Louviers", "population": 18347, "can": "2714", "dept": "27", "reg": "28", "superf": 2710 },
+      "geometry": { "type": "Polygon", "coordinates": [[[1.00, 49.10], [1.20, 49.10], [1.20, 49.25], [1.00, 49.25], [1.00, 49.10]]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "codgeo": "27003", "libgeo": "Acquigny", "population": 1725, "can": "2718", "dept": "27", "reg": "28", "superf": 1780 },
+      "geometry": { "type": "Polygon", "coordinates": [[[1.10, 49.05], [1.30, 49.05], [1.30, 49.16], [1.10, 49.16], [1.10, 49.05]]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "codgeo": "27501", "libgeo": "Le Vaudreuil", "population": 3800, "can": "2721", "dept": "27", "reg": "28", "superf": 1402 },
+      "geometry": { "type": "Polygon", "coordinates": [[[1.05, 49.16], [1.25, 49.16], [1.25, 49.28], [1.05, 49.28], [1.05, 49.16]]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "codgeo": "97101", "libgeo": "Les Abymes", "population": 17371, "can": "97101", "dept": "971", "reg": "01", "superf": 8126 },
+      "geometry": { "type": "Polygon", "coordinates": [[[-61.45, 16.15], [-61.35, 16.15], [-61.35, 16.25], [-61.45, 16.25], [-61.45, 16.15]]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "codgeo": "NR", "libgeo": "Saint-Martin (ignoré : hors COG MVP)", "population": 3200, "can": "NR", "dept": "NR", "reg": "NR", "superf": 5423 },
+      "geometry": { "type": "Polygon", "coordinates": [[[1.0, 1.0], [2.0, 1.0], [2.0, 2.0], [1.0, 2.0], [1.0, 1.0]]] }
+    }
+  ]
+}

@@ -52,8 +52,10 @@ Route::get('/recherche', [RechercheController::class, 'index'])->name('recherche
 Route::get('/carte', [CarteController::class, 'index'])->name('carte.index');
 
 // Cadrage sur un zonage ou une commune (fitBounds + popup ouverte).
+// Les identifiants INPN des ZNIEFF peuvent contenir des lettres
+// (ex. 03M000017, ZNIEFF marine) : contrainte alphanumérique.
 Route::get('/carte/znieff/{id}', [CarteController::class, 'znieff'])
-    ->where('id', '[0-9]{4,12}')
+    ->where('id', '[0-9A-Za-z]{4,12}')
     ->name('carte.znieff');
 
 Route::get('/carte/commune/{slug}', [CarteController::class, 'commune'])
@@ -94,7 +96,7 @@ Route::get('/znieff/num/{num}', [ZonageController::class, 'numero'])
     ->name('znieff.num');
 
 Route::get('/znieff/{id}', [ZonageController::class, 'showOuNumero'])
-    ->where('id', '[0-9]{4,12}')
+    ->where('id', '[0-9A-Za-z]{4,12}')
     ->name('znieff.show');
 
 // -- Natura 2000 : /natura/{code} (code européen FR…).

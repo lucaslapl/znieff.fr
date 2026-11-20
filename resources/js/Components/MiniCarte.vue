@@ -38,12 +38,11 @@ onMounted(async () => {
         attributionControl: true,
     });
 
-    const fonds = basemaps();
-    const couchesFond = {
-        'OpenStreetMap': L.tileLayer(fonds['OpenStreetMap'].url, fonds['OpenStreetMap'].options),
-        'Plan IGN (Géoportail)': L.tileLayer(fonds['Plan IGN (Géoportail)'].url, fonds['Plan IGN (Géoportail)'].options),
-    };
-    couchesFond['OpenStreetMap'].addTo(map);
+    const couchesFond = {};
+    for (const [nom, fond] of Object.entries(basemaps())) {
+        couchesFond[nom] = L.tileLayer(fond.url, fond.options);
+    }
+    couchesFond[Object.keys(couchesFond)[0]].addTo(map); // OpenStreetMap par défaut
     L.control.layers(couchesFond, null, { collapsed: true }).addTo(map);
 
     let bornes = null;

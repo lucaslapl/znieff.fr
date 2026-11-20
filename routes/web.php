@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AireProtegeeController;
+use App\Http\Controllers\CarteController;
 use App\Http\Controllers\CommuneController;
 use App\Http\Controllers\NaturaSiteController;
 use App\Http\Controllers\ZonageController;
@@ -43,10 +44,22 @@ Route::inertia('/ap', 'EnConstruction', [
     'description' => 'Réserve naturelle, arrêté de protection de biotope, réserve biologique…',
 ])->name('ap.index');
 
-Route::inertia('/carte', 'EnConstruction', [
-    'titre' => 'Carte interactive',
-    'description' => 'Fond OpenStreetMap ou Plan IGN v2, surcouches INPN précalculées.',
-])->name('carte.index');
+/*
+|--------------------------------------------------------------------------
+| Carte interactive (itération c) — surcouches précalculées par dept
+|--------------------------------------------------------------------------
+*/
+
+Route::get('/carte', [CarteController::class, 'index'])->name('carte.index');
+
+// Cadrage sur un zonage ou une commune (fitBounds + popup ouverte).
+Route::get('/carte/znieff/{id}', [CarteController::class, 'znieff'])
+    ->where('id', '[0-9]{4,12}')
+    ->name('carte.znieff');
+
+Route::get('/carte/commune/{slug}', [CarteController::class, 'commune'])
+    ->where('slug', '[a-z0-9-]+')
+    ->name('carte.commune');
 
 Route::inertia('/donnees', 'EnConstruction', [
     'titre' => 'Données & méthodologie',

@@ -145,6 +145,12 @@ docker compose exec app php artisan portail:export-sql     # storage/app/portail
   le robots statique du socle a été supprimé — c'est la route
   `robots` (SitemapController) qui fait foi ; ne pas recréer de
   fichier `public/robots.txt`.
+- **Workflows GitHub Actions** : `codeql.yml` a `runs-on: ubuntu-latest`
+  **figé** — le contexte `runner` n'existe pas au niveau
+  `jobs.<id>.runs-on` (uniquement dans les steps et les `if`) :
+  `runs-on: ${{ runner.os }}` fait rejeter le workflow avant tout job
+  (« Unrecognized named-value: 'runner' »). Dans les `with:` des steps
+  (`${{ runner.os }}` de la clé cache composer), c'est en revanche valide.
 
 ## Tests
 

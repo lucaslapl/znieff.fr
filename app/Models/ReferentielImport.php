@@ -3,10 +3,13 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Carbon;
 
 /**
  * Journal des imports : source, version datée, volume — affiché en pied de
  * page et sur la page Données & méthodologie.
+ *
+ * @property Carbon|null $importe_le jour de l'import (lastmod du sitemap)
  */
 class ReferentielImport extends Model
 {

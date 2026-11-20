@@ -1,6 +1,6 @@
 # Portail ZNIEFF
 
-Site public : **<https://znieff.fr>** (itération (b) — socle import + fiches).
+Site public : **<https://znieff.fr>** (MVP complet — itérations a à e).
 Même équipe que [l'Observatoire des ABC](https://github.com/lucaslapl/Observatoire-des-ABC) :
 faits bruts sourcés, jamais d'indicateur composite, sources créditées.
 
@@ -27,9 +27,22 @@ GeoJSON statiques. La production ne fait jamais de calcul spatial à la volée.
   aires protégées (APPB, RNR, RNN…) — avec table de croisement par commune
   et lien vers la fiche INPN. Espèces et habitats **jamais rediffusés**.
 - Carte Leaflet : fonds OSM ou Plan IGN v2 (WMTS libres Géoplateforme,
-  **sans clé**), surcouches GeoJSON précalculées.
-- Listes/recherche par commune, ZNIEFF, département ; exports CSV/GeoJSON
-  (itérations suivantes).
+  **sans clé**), surcouches GeoJSON précalculées, cadrages
+  `/carte/znieff/{id}` et `/carte/commune/{slug}` (popups cliquables).
+- Listes paginées (communes, ZNIEFF, Natura 2000, aires protégées) avec
+  filtres simples (département, type, recherche nom/identifiant/code
+  postal), pagination serveur 25/page ; recherche transverse
+  (`/recherche`) : un terme exact mène à la fiche (« Louviers », « 8526 »,
+  « Eure »).
+- Exports CSV et GeoJSON des listes filtrées (conditions INPN, jamais
+  LO 2.0) : CSV complet de France en flux, GeoJSON par périmètre.
+- Page « Données & méthodologie » : sources, versions des référentiels
+  datées, ce que le portail ne fait pas, réutilisation, technique.
+- SEO : sitemap exhaustif (`/sitemap.xml` — index + lots de 10 000 URLs
+  par famille, toutes les fiches), `robots.txt` servi par le portail,
+  canonical par page, rendu serveur Inertia (SSR) des `<title>`,
+  descriptions et contenu.
+- Audience anonyme révocable, aucun traceur publicitaire.
 
 ## Sources de données
 

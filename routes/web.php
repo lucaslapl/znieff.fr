@@ -3,9 +3,11 @@
 use App\Http\Controllers\AireProtegeeController;
 use App\Http\Controllers\CarteController;
 use App\Http\Controllers\CommuneController;
+use App\Http\Controllers\DonneesController;
 use App\Http\Controllers\HomeController;
 use App\Http\Controllers\NaturaSiteController;
 use App\Http\Controllers\RechercheController;
+use App\Http\Controllers\SitemapController;
 use App\Http\Controllers\ZonageController;
 use Illuminate\Support\Facades\Route;
 
@@ -18,8 +20,8 @@ use Illuminate\Support\Facades\Route;
 | aires protégées) — indexables, canonical par fiche, ancien numéro
 | régional ZNIEFF redirigé en 301 vers l'identifiant national.
 | Itération (c) : carte interactive (surcouches précalculées /geo).
-| Itération (d) : listes paginées (25/page), recherche transverse,
-| exports CSV/GeoJSON des listes filtrées.
+| Itération (e) : Données & méthodologie, sitemap exhaustif
+| (index + lots de 10 000 URLs par famille), robots.txt.
 */
 
 Route::get('/', [HomeController::class, 'index'])->name('home');
@@ -58,10 +60,22 @@ Route::get('/carte/commune/{slug}', [CarteController::class, 'commune'])
     ->where('slug', '[a-z0-9-]+')
     ->name('carte.commune');
 
-Route::inertia('/donnees', 'EnConstruction', [
-    'titre' => 'Données & méthodologie',
-    'description' => 'Sources, versions des référentiels, conditions de réutilisation.',
-])->name('donnees.index');
+Route::get('/donnees', [DonneesController::class, 'index'])->name('donnees.index');
+
+/*
+|--------------------------------------------------------------------------
+| SEO (itération e) — sitemap exhaustif (toutes les fiches), robots
+|--------------------------------------------------------------------------
+*/
+
+Route::get('/sitemap.xml', [SitemapController::class, 'index'])->name('sitemap.index');
+
+Route::get('/sitemaps/{famille}-{lot}.xml', [SitemapController::class, 'lot'])
+    ->where('famille', '[a-z]+')
+    ->where('lot', '[0-9]+')
+    ->name('sitemap.lot');
+
+Route::get('/robots.txt', [SitemapController::class, 'robots'])->name('robots');
 
 /*
 |--------------------------------------------------------------------------
@@ -84,11 +98,14 @@ Route::get('/znieff/{id}', [ZonageController::class, 'showOuNumero'])
     ->name('znieff.show');
 
 // -- Natura 2000 : /natura/{code} (code européen FR…).
+//    Les contraintes de route doivent rester compatibles JavaScript :
+//    Ziggy les compile côté client et SSR — pas de drapeau PCRE « (?i) »
+//    (crash du rendu serveur) ; classes de caractères à la place.
 Route::get('/natura/{code}', [NaturaSiteController::class, 'show'])
-    ->where('code', '(?i)fr[0-9a-z]{6,10}')
+    ->where('code', '[Ff][Rr][0-9a-zA-Z]{6,10}')
     ->name('natura.show');
 
 // -- Aire protégée : /ap/{id}.
 Route::get('/ap/{id}', [AireProtegeeController::class, 'show'])
-    ->where('id', '(?i)fr[0-9a-z]{6,12}')
+    ->where('id', '[Ff][Rr][0-9a-zA-Z]{6,12}')
     ->name('ap.show');

@@ -6,6 +6,7 @@ use App\Models\ReferentielImport;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Inertia\Middleware;
+use Tighten\Ziggy\Ziggy;
 
 class HandleInertiaRequests extends Middleware
 {
@@ -36,9 +37,16 @@ class HandleInertiaRequests extends Middleware
             'site' => [
                 'name' => config('app.name'),
                 // Versions des référentiels, affichées en pied de page
-                // (raîche annuelle — cache 1 heure).
+                // (rafraîchies annuellement — cache 1 heure).
                 'referentiels' => $this->referentiels(),
             ],
+            // Configuration Ziggy partagée : les composants rendus côté
+            // serveur (SSR) comme client appellent route() avec cette
+            // configuration — plus besoin du script @routes en inline
+            // dans le gabarit (sobriété : un seul exemplaire des routes).
+            'ziggy' => function () use ($request): array {
+                return array_merge((new Ziggy)->toArray(), ['location' => $request->url()]);
+            },
         ];
     }
 

@@ -17,6 +17,12 @@ services:
             # 8010 : 8000 est déjà pris par le conteneur abc-app de
             # l'Observatoire des ABC sur cet hôte.
             APP_URL: http://localhost:8010
+            # SSR Inertia (profil « ssr ») : dans le réseau compose le
+            # service s'appelle « ssr » (port interne 13714 ; sur l'hôte
+            # 13914). Activation : INERTIA_SSR_ENABLED=true docker compose
+            # --profile ssr up -d app ssr — sinon la valeur du .env (false).
+            INERTIA_SSR_ENABLED: ${INERTIA_SSR_ENABLED:-false}
+            INERTIA_SSR_URL: ${INERTIA_SSR_URL:-http://ssr:13714}
             # Données INPN montées en lecture seule depuis le poste hôte
             # (référentiels de l'Observatoire des ABC, hors git).
             PORTAIL_INPN_DIR: /data/inpn-data

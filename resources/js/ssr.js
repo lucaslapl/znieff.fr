@@ -18,7 +18,10 @@ createServer(
             setup({ App, props, plugin }) {
                 return createSSRApp({ render: () => h(App, props) })
                     .use(plugin)
-                    .use(ZiggyVue);
+                    // Configuration Ziggy partagée par le middleware
+                    // (prop « ziggy ») : route() est résoluble pendant
+                    // le rendu serveur — imbattable pour le SEO.
+                    .use(ZiggyVue, props.initialPage.props.ziggy);
             },
         }),
     // Le port doit suivre INERTIA_SSR_URL (variable SSR_PORT posée par le

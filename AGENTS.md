@@ -71,6 +71,11 @@ docker compose up -d app          # app + PostGIS : http://localhost:8010
                                   #  l'Observatoire, occupe déjà 8000)
 docker compose --profile build run --rm assets   # build Vite (npm run build)
 docker compose --profile hmr up vite              # dev avec HMR (port 5173)
+docker compose --profile ssr up -d ssr            # serveur de rendu Inertia (node)
+# Activation du SSR (titres/contenu rendus serveur, preuve SEO) :
+INERTIA_SSR_ENABLED=true docker compose --profile ssr up -d app ssr
+# Retour au rendu client uniquement : recréer le conteneur app sans la
+# variable (le .env local garde INERTIA_SSR_ENABLED=false).
 docker compose run --rm app php artisan test      # PHPUnit
 docker compose logs app                            # suivi entrypoint
 
@@ -118,6 +123,28 @@ docker compose exec app php artisan portail:export-sql     # storage/app/portail
   comparaison stricte avec un identifiant INPN.
 - Eloquent ne pluralise pas `ZonageCommune` correctement → `$table` déclarée
   explicitement sur tous les pivots.
+- **Ziggy + SSR (itération e)** : les contraintes `where()` des routes sont
+  compilées en RegExp **JavaScript** par Ziggy — jamais de drapeau PCRE
+  inline `(?i)` (crash silencieux du rendu serveur) : utiliser des classes
+  (`[Ff][Rr][0-9a-zA-Z]{6,10}`). La config Ziggy passe par la prop partagée
+  `ziggy` (HandleInertiaRequests) → `use(ZiggyVue, props.initialPage.props.ziggy)`
+  dans app.js **et** ssr.js ; plus de `@routes` en inline dans le blade.
+- **SSR strict sur les props** : une page Vue qui lit une prop non déclarée
+  dans `defineProps` fonctionne côté client (JSON) mais crashe le SSR en
+  boucle de warning — toujours déclarer `meta`, etc.
+- **larastan + withCount** : les compteurs attribués par `withCount('x as nb')`
+  ne sont pas devinés → docblock `@property-read int $nb_x` sur le modèle.
+- **`Illuminate\Contracts\Database\Eloquent\Builder` n'est pas générique** :
+  typer les helpers de requête avec le Builder **concret**
+  (`@return Builder<\App\Models\X>`, import `Illuminate\Database\Eloquent\Builder`)
+  pour que `cursor()`/`get()` informent le type des lignes.
+- **fputcsv (conteneur) quote les champs contenant des espaces** (enclosure
+  RFC) : les tests d'exports découpent leurs assertions en fragments de
+  champs, jamais sur des fragments chevauchant plusieurs champs.
+- **`try_files` de nginx sert `public/robots.txt` avant le routage PHP** :
+  le robots statique du socle a été supprimé — c'est la route
+  `robots` (SitemapController) qui fait foi ; ne pas recréer de
+  fichier `public/robots.txt`.
 
 ## Tests
 
@@ -134,9 +161,22 @@ docker compose run --rm app ./vendor/bin/phpstan analyse --no-progress
    interdits : build à chaque mise en prod).
 2. Importer le SQL portable généré en local
    (`storage/app/portail/deploy/portail-deploy-mysql.sql`).
-3. Copier `public/geo/` tel quel (généré par l'import local).
+3. Copier `public/geo/` tel quel (généré par l'import local) ; cache long
+   sur `/geo/` (surcouches précalculées, exports GeoJSON les relisent).
 4. `.env` production : `APP_URL=https://znieff.fr`, `APP_ENV=production`,
-   base MySQL du mutualisé, `PORTAIL_GEO_DIR` sur le chemin servi.
+   base MySQL du mutualisé.
+5. **SSR (SEO — titles, descriptions, contenu rendus)** : lancer
+   `node bootstrap/ssr/ssr.js` en service (SSR_PORT dédié sur 127.0.0.1 —
+   le défaut 13714 est partagé par toutes les apps Inertia du serveur) puis
+   `.env` : `INERTIA_SSR_ENABLED=true`,
+   `INERTIA_SSR_URL=http://127.0.0.1:{port dédié}` ; un watchdog (cron)
+   relance le service. Si le service tombe, les pages retombent sur le
+   shell client (jamais d'erreur 500).
+6. **Sitemap** : soumettre `https://znieff.fr/sitemap.xml` à Search Console
+   (index + lots de 10 000 URLs par famille — toutes les fiches, toutes les
+   communes même sans zonage). `robots.txt` est servi par la route `robots` :
+   ne jamais recréer de `public/robots.txt` statique (nginx le servirait
+   avant PHP).
 
 ## Licence
 

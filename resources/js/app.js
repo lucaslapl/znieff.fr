@@ -19,7 +19,10 @@ createInertiaApp({
     setup({ el, App, props, plugin }) {
         return createApp({ render: () => h(App, props) })
             .use(plugin)
-            .use(ZiggyVue)
+            // Configuration Ziggy partagée par le middleware (prop
+            // « ziggy ») : route() est résoluble dès le rendu — client
+            // comme SSR, sans script @routes en inline.
+            .use(ZiggyVue, props.initialPage.props.ziggy)
             .mount(el);
     },
     progress: {

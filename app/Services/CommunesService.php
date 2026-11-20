@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\ReferentielImport;
 use App\Support\GeojsonStream;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -90,7 +91,11 @@ class CommunesService
     {
         $colonnes = ['insee', 'slug', 'nom', 'dept', 'dept_nom', 'reg_code', 'reg_nom',
             'population', 'superficie_ha', 'superficie_calc_ha', 'lat', 'lng', 'has_abc'];
-        $pris = [];
+        // Slugs déjà en base : le rafraîchissement ne doit jamais entrer
+        // en collision avec une commune existante (ex. homonymes
+        // nationaux type « Saint-Marcel » lors d'un rafraîchissement
+        // complet par-dessus un référentiel partiel).
+        $pris = $this->prisEnBase();
         $maj = [];
 
         $lignes = DB::select(
@@ -139,7 +144,9 @@ class CommunesService
 
         $nb = 0;
         $ignores = 0;
-        $pris = [];
+        // Idem : slugs existants chargés pour éviter toute collision
+        // avec le référentiel déjà présent (refresh complet ou partiel).
+        $pris = $this->prisEnBase();
         $lots = [];
         foreach (GeojsonStream::features($file) as $feature) {
             $props = $feature['properties'];
@@ -194,7 +201,8 @@ class CommunesService
     /**
      * Slug français : l'Abergement-Clémenciat → l-abergement-clemenciat
      * (Str::slug gère accents, apostrophes, tirets). Collision réelle
-     * entre communes : suffixe du code INSEE.
+     * entre communes : suffixe du code INSEE. Une commune qui se
+     * rafraîchit garde son slug (l'entrée en $pris est la sienne).
      *
      * @param  array<string, string>  $pris  slug => insee (mis à jour)
      */
@@ -204,16 +212,46 @@ class CommunesService
         if ($base === '') {
             $base = 'commune';
         }
-        if (! isset($pris[$base])) {
+        if (! isset($pris[$base]) || $pris[$base] === $insee) {
             $pris[$base] = $insee;
 
             return $base;
         }
 
         $slug = $base.'-'.$insee;
+        // Dernier recours (un nom qui slugifierait déjà comme un couple
+        // base-insee d'une autre commune) : on numérote — n'arrive
+        // qu'en théorie, mais la contrainte d'unicité est servie.
+        $essai = 2;
+        while (isset($pris[$slug]) && $pris[$slug] !== $insee) {
+            $slug = $base.'-'.$insee.'-'.$essai++;
+        }
         $pris[$slug] = $insee;
 
         return $slug;
+    }
+
+    /**
+     * Slugs déjà pris en base (slug => insee) — amorce de l'anti-
+     * collision lors d'un rafraîchissement par-dessus un référentiel
+     * existant, complet ou partiel.
+     *
+     * @return array<string, string>
+     */
+    private function prisEnBase(): array
+    {
+        try {
+            /** @var Collection<int, \stdClass> $lignes */
+            $lignes = DB::table('communes')->get(['insee', 'slug']);
+            $pris = [];
+            foreach ($lignes as $ligne) {
+                $pris[(string) $ligne->slug] = (string) $ligne->insee;
+            }
+
+            return $pris;
+        } catch (\Throwable) {
+            return [];
+        }
     }
 
     /**

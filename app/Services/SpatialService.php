@@ -250,6 +250,18 @@ class SpatialService
             ]);
         }
 
+        // Le pivot porte une clé étrangère vers la table desservie : ne
+        // croiser que les objets RÉELLEMENT écrits dans cette table (le
+        // staging peut porter des zones que le référentiel d'attributs
+        // écarte — périmètre actif du CSV INPN). Sans cette jointure, le
+        // croisement France viole la FK sur les zones non actives.
+        $cible = match ($pivotTable) {
+            'zonage_communes' => ['zonages', 'id'],
+            'natura_communes' => ['natura_sites', 'code'],
+            'ap_communes' => ['aires_protegees', 'id'],
+            default => throw new \InvalidArgumentException("Pivot inconnu : {$pivotTable}"),
+        };
+
         DB::table($pivotTable)->delete();
         DB::statement(
             "INSERT INTO {$pivotTable} ({$pivotIdColumn}, insee, surface_ha, part_zonage, part_commune)"
@@ -262,6 +274,7 @@ class SpatialService
             .' JOIN portail_tmp_communes c ON ST_Intersects(z.geom, c.geom2154)'
             .' JOIN LATERAL (SELECT ST_Area(ST_Intersection(z.geom, c.geom2154)) / 10000.0 AS ha) a ON a.ha > 0'
             .' JOIN communes co ON co.insee = c.insee'
+            ." JOIN {$cible[0]} r ON r.{$cible[1]} = z.id"
         );
 
         return ['nb' => (int) DB::scalar("SELECT COUNT(*) FROM {$pivotTable}"), 'communes_manquantes' => $communesManquantes];

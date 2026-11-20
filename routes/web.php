@@ -3,7 +3,9 @@
 use App\Http\Controllers\AireProtegeeController;
 use App\Http\Controllers\CarteController;
 use App\Http\Controllers\CommuneController;
+use App\Http\Controllers\HomeController;
 use App\Http\Controllers\NaturaSiteController;
+use App\Http\Controllers\RechercheController;
 use App\Http\Controllers\ZonageController;
 use Illuminate\Support\Facades\Route;
 
@@ -11,38 +13,33 @@ use Illuminate\Support\Facades\Route;
 |--------------------------------------------------------------------------
 | Routes publiques du Portail ZNIEFF
 |--------------------------------------------------------------------------
-| Itération (a) : accueil + squelettes des sections (pages « en
-| construction », noindex, hors sitemap) pour que la navigation et les
-| gabarits de la charte soient en place dès le socle. Les vraies listes et
-| fiches arrivent aux itérations (b)-(e).
-|
-| Itération (b) : fiches communes et zonages (ZNIEFF, Natura 2000, aires
-| protégées) — tout indexable, canonical par fiche, ancien numéro
+| Itération (a) : accueil, migrations, pipeline d'import (artisan).
+| Itération (b) : fiches communes et zonages (ZNIEFF, Natura 2000,
+| aires protégées) — indexables, canonical par fiche, ancien numéro
 | régional ZNIEFF redirigé en 301 vers l'identifiant national.
+| Itération (c) : carte interactive (surcouches précalculées /geo).
+| Itération (d) : listes paginées (25/page), recherche transverse,
+| exports CSV/GeoJSON des listes filtrées.
 */
 
-Route::inertia('/', 'Home', ['pageTitre' => 'Portail ZNIEFF — le patrimoine naturel des communes de France'])
-    ->name('home');
+Route::get('/', [HomeController::class, 'index'])->name('home');
 
-Route::inertia('/communes', 'EnConstruction', [
-    'titre' => 'Communes',
-    'description' => 'Recherche par nom, code INSEE ou code postal. Chaque commune de France a une fiche.',
-])->name('communes.index');
+/*
+|--------------------------------------------------------------------------
+| Listes et recherche (itération d) — pagination serveur, filtres
+| simples (dept, type, recherche), exports CSV/GeoJSON de la liste
+| filtrée (?export=csv|geojson, sous conditions INPN, jamais LO 2.0).
+|--------------------------------------------------------------------------
+*/
 
-Route::inertia('/znieff', 'EnConstruction', [
-    'titre' => 'Zonages ZNIEFF',
-    'description' => 'Recherche par identifiant, par nom, par commune ou par département.',
-])->name('znieff.index');
+Route::get('/communes', [CommuneController::class, 'index'])->name('communes.index');
+Route::get('/znieff', [ZonageController::class, 'index'])->name('znieff.index');
+Route::get('/natura', [NaturaSiteController::class, 'index'])->name('natura.index');
+Route::get('/ap', [AireProtegeeController::class, 'index'])->name('ap.index');
 
-Route::inertia('/natura', 'EnConstruction', [
-    'titre' => 'Sites Natura 2000',
-    'description' => 'Sites d\'importance communautaire et zones de protection spéciale.',
-])->name('natura.index');
-
-Route::inertia('/ap', 'EnConstruction', [
-    'titre' => 'Aires protégées',
-    'description' => 'Réserve naturelle, arrêté de protection de biotope, réserve biologique…',
-])->name('ap.index');
+// Recherche transverse (searchbar de l'accueil) : redirection vers la
+// fiche en cas de correspondance exacte, sinon résultats par section.
+Route::get('/recherche', [RechercheController::class, 'index'])->name('recherche.index');
 
 /*
 |--------------------------------------------------------------------------

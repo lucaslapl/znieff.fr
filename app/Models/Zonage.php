@@ -13,6 +13,7 @@ use Illuminate\Support\Carbon;
  *
  * @property string $id identifiant national (NM_SFFZN), ex. 230009093
  * @property string $famille z1 | z2
+ * @property-read int $nb_communes compteur withCount de la liste (pivot)
  * @property Carbon|null $date_crea
  * @property Carbon|null $date_modif_geo
  */

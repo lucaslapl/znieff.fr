@@ -11,6 +11,7 @@ use Illuminate\Support\Carbon;
  * différence d'une ZNIEFF, inventaire scientifique).
  *
  * @property string $id ex. FR3800583
+ * @property-read int $nb_communes compteur withCount de la liste (pivot)
  * @property Carbon|null $date_crea_sign
  * @property Carbon|null $date_modif_geo
  */

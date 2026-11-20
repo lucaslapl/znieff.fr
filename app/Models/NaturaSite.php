@@ -10,6 +10,7 @@ use Illuminate\Support\Carbon;
  * Site Natura 2000 (SIC/ZSC ou ZPS), référentiel INPN.
  *
  * @property string $code ex. FR8212001
+ * @property-read int $nb_communes compteur withCount de la liste (pivot)
  * @property Carbon|null $date_designation
  * @property Carbon|null $date_modif_geo
  */

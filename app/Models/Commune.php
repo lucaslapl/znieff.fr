@@ -13,6 +13,9 @@ use Illuminate\Support\Collection;
  *
  * @property string $insee
  * @property string $slug
+ * @property-read int $nb_zonages compteur withCount de la liste (pivots)
+ * @property-read int $nb_natura
+ * @property-read int $nb_ap
  */
 class Commune extends Model
 {

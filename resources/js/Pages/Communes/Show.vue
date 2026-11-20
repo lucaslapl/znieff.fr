@@ -27,8 +27,8 @@ const abUrl = (slug) => `https://observatoire-abc.fr/commune/${slug}`;
             <link rel="canonical" :href="meta.canonical" />
         </Head>
 
-        <div class="fiche-tete">
-            <div>
+        <div class="fiche-avec-carte">
+            <div class="fiche-info">
                 <h1>Patrimoine naturel à {{ commune.nom }} ({{ commune.dept }}, {{ commune.dept_nom }})</h1>
                 <p class="lead">
                     Vu <strong>par commune</strong>, l'inventaire du patrimoine naturel officiel : ZNIEFF,
@@ -41,28 +41,26 @@ const abUrl = (slug) => `https://observatoire-abc.fr/commune/${slug}`;
                         Voir l'ABC de {{ commune.nom }} sur l'Observatoire des ABC ↗
                     </a>
                 </p>
+                <div class="plate">
+                    <h2 style="border:none; margin-top:0">Informations générales</h2>
+                    <dl class="kv">
+                        <dt>Code INSEE</dt><dd>{{ commune.insee }}</dd>
+                        <dt>Population (INSEE)</dt><dd>{{ commune.population ?? '—' }} habitants</dd>
+                        <dt>Superficie (IGN)</dt><dd>{{ commune.superficie_ha }}</dd>
+                        <dt>Région</dt><dd>{{ commune.reg_nom ?? '—' }}</dd>
+                        <dt>Codes postaux</dt><dd>{{ commune.codes_postaux ?? '—' }}</dd>
+                        <dt>Zonages ZNIEFF</dt><dd>{{ nbZonages }}</dd>
+                        <dt>Sites Natura 2000</dt><dd>{{ nbNatura }}</dd>
+                        <dt>Aires protégées</dt><dd>{{ nbAires }}</dd>
+                    </dl>
+                </div>
             </div>
-            <div>
-                <MiniCarte :couches="[{ url: commune.geojson, famille: 'commune' }]" :hauteur="230" />
-                <p class="hint" style="margin-top:.4rem">
-                    Contours : AdminExpress (IGN) · Périmètres : INPN (MNHN).
-                </p>
-            </div>
+            <aside class="fiche-carte">
+                <MiniCarte :couches="[{ url: commune.geojson, famille: 'commune' }]" :hauteur="320" />
+                <p class="hint">Contours : AdminExpress (IGN) · Périmètres : INPN (MNHN).</p>
+            </aside>
         </div>
 
-        <div class="plate">
-            <h2 style="border:none; margin-top:0">Informations générales</h2>
-            <dl class="kv">
-                <dt>Code INSEE</dt><dd>{{ commune.insee }}</dd>
-                <dt>Population (INSEE)</dt><dd>{{ commune.population ?? '—' }} habitants</dd>
-                <dt>Superficie (IGN)</dt><dd>{{ commune.superficie_ha }}</dd>
-                <dt>Région</dt><dd>{{ commune.reg_nom ?? '—' }}</dd>
-                <dt>Codes postaux</dt><dd>{{ commune.codes_postaux ?? '—' }}</dd>
-                <dt>Zonages ZNIEFF</dt><dd>{{ nbZonages }}</dd>
-                <dt>Sites Natura 2000</dt><dd>{{ nbNatura }}</dd>
-                <dt>Aires protégées</dt><dd>{{ nbAires }}</dd>
-            </dl>
-        </div>
 
         <h2>Zonages ZNIEFF sur le territoire</h2>
         <div v-if="zonages.length > 0" class="plate">

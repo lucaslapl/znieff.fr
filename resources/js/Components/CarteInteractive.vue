@@ -40,6 +40,8 @@ onMounted(async () => {
         couchesFond[nom] = L.tileLayer(fond.url, fond.options);
     }
     couchesFond[Object.keys(couchesFond)[0]].addTo(map); // OpenStreetMap par défaut
+    // Échelle graphique métrique, en bas à gauche de la carte.
+    L.control.scale({ imperial: false, position: 'bottomleft' }).addTo(map);
 
     let bornesDept = null;
     const indexZones = new Map(); // id zone → couche Leaflet

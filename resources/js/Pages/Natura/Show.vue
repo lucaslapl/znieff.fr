@@ -21,36 +21,35 @@ const props = defineProps({
             <link rel="canonical" :href="meta.canonical" />
         </Head>
 
-        <div class="fiche-tete">
-            <div>
+        <div class="fiche-avec-carte">
+            <div class="fiche-info">
                 <h1>{{ site.nom }}</h1>
                 <p>
                     <BadgeFamille classe="natura" :label="site.type" />
                     <span class="hint">{{ site.code }}</span>
                 </p>
                 <div class="chapeau">{{ chapeau }}</div>
+                <div class="plate">
+                    <h2 style="border:none; margin-top:0">Caractéristiques</h2>
+                    <dl class="kv">
+                        <dt>Désignation</dt><dd>{{ site.type }}</dd>
+                        <dt>Superficie</dt>
+                        <dd>
+                            {{ site.superficie_ha }}
+                            <small v-if="site.superficie_ref_ha">(référence INPN : {{ site.superficie_ref_ha }} — écart ≈ ± 1 %)</small>
+                        </dd>
+                        <dt>Précision de saisie</dt><dd>{{ site.precision_saisie }}</dd>
+                        <dt>Désignation du site</dt><dd>{{ site.date_designation }}</dd>
+                        <dt>Dernière modification géométrique</dt><dd>{{ site.date_modif_geo }}</dd>
+                        <dt>Fiche INPN</dt>
+                        <dd><a :href="site.url_inpn" target="_blank" rel="noopener">Consulter la fiche INPN ↗</a></dd>
+                    </dl>
+                </div>
             </div>
-            <div>
-                <MiniCarte :couches="[{ url: site.geojson, famille: 'nat', href: route('natura.show', site.code), label: site.nom }]" :hauteur="260" />
-                <p class="hint" style="margin-top:.4rem">Périmètre INPN (MNHN), simplifié pour l'affichage.</p>
-            </div>
-        </div>
-
-        <h2>Caractéristiques</h2>
-        <div class="plate">
-            <dl class="kv">
-                <dt>Désignation</dt><dd>{{ site.type }}</dd>
-                <dt>Superficie</dt>
-                <dd>
-                    {{ site.superficie_ha }}
-                    <small v-if="site.superficie_ref_ha">(référence INPN : {{ site.superficie_ref_ha }} — écart ≈ ± 1 %)</small>
-                </dd>
-                <dt>Précision de saisie</dt><dd>{{ site.precision_saisie }}</dd>
-                <dt>Désignation du site</dt><dd>{{ site.date_designation }}</dd>
-                <dt>Dernière modification géométrique</dt><dd>{{ site.date_modif_geo }}</dd>
-                <dt>Fiche INPN</dt>
-                <dd><a :href="site.url_inpn" target="_blank" rel="noopener">Consulter la fiche INPN ↗</a></dd>
-            </dl>
+            <aside class="fiche-carte">
+                <MiniCarte :couches="[{ url: site.geojson, famille: 'nat', href: route('natura.show', site.code), label: site.nom }]" :hauteur="320" />
+                <p class="hint">Périmètre INPN (MNHN), simplifié pour l'affichage.</p>
+            </aside>
         </div>
 
         <h2>Communes concernées</h2>

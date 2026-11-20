@@ -157,6 +157,21 @@ tr.group td { background: var(--vert-clair); font-weight: 700; color: var(--vert
     font-size: 0.93rem;
     max-width: 85ch;
 }
+/* ---------- Fiche + carte (colonnes) ---------- */
+.fiche-avec-carte {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 340px; /* infos à gauche, carte à droite */
+    gap: 1.5rem;
+    align-items: start;
+}
+.fiche-carte { position: sticky; top: 1rem; }
+.fiche-carte .mini-map { width: 100%; }
+@media (max-width: 880px) {
+    /* Écran étroit : la carte repasse au-dessus des infos, pleine largeur. */
+    .fiche-avec-carte { grid-template-columns: 1fr; }
+    .fiche-carte { position: static; order: -1; }
+}
+
 .mini-map {
     background: var(--vert-clair) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Cpath d='M0 40 40 0' stroke='%23c9dbc9' stroke-width='1'/%3E%3C/svg%3E");
     border: 1px solid var(--bord);

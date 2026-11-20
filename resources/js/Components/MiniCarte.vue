@@ -44,6 +44,8 @@ onMounted(async () => {
     }
     couchesFond[Object.keys(couchesFond)[0]].addTo(map); // OpenStreetMap par défaut
     L.control.layers(couchesFond, null, { collapsed: true }).addTo(map);
+    // Échelle graphique métrique, en bas à gauche de la mini-carte.
+    L.control.scale({ imperial: false, position: 'bottomleft' }).addTo(map);
 
     let bornes = null;
     for (const c of props.couches) {

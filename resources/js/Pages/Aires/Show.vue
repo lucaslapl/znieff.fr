@@ -21,40 +21,40 @@ const props = defineProps({
             <link rel="canonical" :href="meta.canonical" />
         </Head>
 
-        <div class="fiche-tete">
-            <div>
+        <div class="fiche-avec-carte">
+            <div class="fiche-info">
                 <h1>{{ aire.nom }}</h1>
                 <p>
                     <BadgeFamille classe="ap" :label="aire.type_nom" />
                     <span class="hint">{{ aire.id }}</span>
                 </p>
                 <div class="chapeau">{{ chapeau }}</div>
+                <div class="plate">
+                    <h2 style="border:none; margin-top:0">Caractéristiques</h2>
+                    <dl class="kv">
+                        <dt>Type de désignation</dt><dd>{{ aire.type_nom }}</dd>
+                        <dt>Acte de classement</dt><dd>{{ aire.acte ?? '—' }}</dd>
+                        <dt>Gestionnaire</dt><dd>{{ aire.gestionnaire ?? '—' }}</dd>
+                        <dt>Superficie</dt>
+                        <dd>
+                            {{ aire.superficie_ha }}
+                            <small v-if="aire.superficie_ref_ha">(référence INPN : {{ aire.superficie_ref_ha }} — écart ≈ ± 1 %)</small>
+                        </dd>
+                        <dt>Précision</dt><dd>saisie fine — périmètre précalculé à ~5 m à l'import</dd>
+                        <dt>Création / signature</dt><dd>{{ aire.date_crea_sign }}</dd>
+                        <dt>Dernière modification géométrique</dt><dd>{{ aire.date_modif_geo }}</dd>
+                        <dt>Document de gestion</dt><dd>{{ aire.doc_gestion ? 'Oui (voir fiche INPN)' : '—' }}</dd>
+                        <dt>Fiche INPN</dt>
+                        <dd><a :href="aire.url_inpn" target="_blank" rel="noopener">Consulter la fiche INPN ↗</a></dd>
+                    </dl>
+                </div>
             </div>
-            <div>
-                <MiniCarte :couches="[{ url: aire.geojson, famille: 'ap', href: route('ap.show', aire.id), label: aire.nom }]" :hauteur="260" />
-                <p class="hint" style="margin-top:.4rem">Géométrie de saisie fine (périmètre précalculé à ~5 m à l'import).</p>
-            </div>
+            <aside class="fiche-carte">
+                <MiniCarte :couches="[{ url: aire.geojson, famille: 'ap', href: route('ap.show', aire.id), label: aire.nom }]" :hauteur="320" />
+                <p class="hint">Géométrie de saisie fine (périmètre précalculé à ~5 m à l'import).</p>
+            </aside>
         </div>
 
-        <h2>Caractéristiques</h2>
-        <div class="plate">
-            <dl class="kv">
-                <dt>Type de désignation</dt><dd>{{ aire.type_nom }}</dd>
-                <dt>Acte de classement</dt><dd>{{ aire.acte ?? '—' }}</dd>
-                <dt>Gestionnaire</dt><dd>{{ aire.gestionnaire ?? '—' }}</dd>
-                <dt>Superficie</dt>
-                <dd>
-                    {{ aire.superficie_ha }}
-                    <small v-if="aire.superficie_ref_ha">(référence INPN : {{ aire.superficie_ref_ha }} — écart ≈ ± 1 %)</small>
-                </dd>
-                <dt>Précision</dt><dd>saisie fine — périmètre précalculé à ~5 m à l'import</dd>
-                <dt>Création / signature</dt><dd>{{ aire.date_crea_sign }}</dd>
-                <dt>Dernière modification géométrique</dt><dd>{{ aire.date_modif_geo }}</dd>
-                <dt>Document de gestion</dt><dd>{{ aire.doc_gestion ? 'Oui (voir fiche INPN)' : '—' }}</dd>
-                <dt>Fiche INPN</dt>
-                <dd><a :href="aire.url_inpn" target="_blank" rel="noopener">Consulter la fiche INPN ↗</a></dd>
-            </dl>
-        </div>
 
         <h2>Communes concernées</h2>
         <p class="lead">{{ nbCommunes }} commune{{ nbCommunes > 1 ? 's' : '' }} intersectée{{ nbCommunes > 1 ? 's' : '' }} par le périmètre de l'aire protégée.</p>

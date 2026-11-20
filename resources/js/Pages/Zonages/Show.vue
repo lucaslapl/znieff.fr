@@ -25,48 +25,47 @@ const type = props.zonage.famille === 'z1' ? 'ZNIEFF I' : 'ZNIEFF II';
             <link rel="canonical" :href="meta.canonical" />
         </Head>
 
-        <div class="fiche-tete">
-            <div>
+        <div class="fiche-avec-carte">
+            <div class="fiche-info">
                 <h1>{{ zonage.nom }}</h1>
                 <p>
                     <BadgeFamille :classe="zonage.badge" :label="type" />
                     <span class="hint">ID {{ zonage.id }}<template v-if="zonage.num_regional"> · ancien n° {{ zonage.num_regional }}</template></span>
                 </p>
                 <div class="chapeau">{{ chapeau }}</div>
+                <div class="plate">
+                    <h2 style="border:none; margin-top:0">Caractéristiques</h2>
+                    <dl class="kv">
+                        <dt>Type de zone</dt><dd>{{ type }}</dd>
+                        <dt>Superficie totale</dt>
+                        <dd>
+                            {{ zonage.superficie_ha }}
+                            <small v-if="zonage.superficie_ref_ha">(superficie INPN : {{ zonage.superficie_ref_ha }} — écart ≈ ± 1 %)</small>
+                        </dd>
+                        <dt>Précision de saisie</dt><dd>{{ zonage.precision_saisie }}</dd>
+                        <dt>Création du zonage</dt><dd>{{ zonage.date_crea }}</dd>
+                        <dt>Dernière modification géométrique</dt><dd>{{ zonage.date_modif_geo }}</dd>
+                        <dt v-if="parent">ZNIEFF II de rattachement</dt>
+                        <dd v-if="parent">
+                            <Link :href="route('znieff.show', parent.id)">{{ parent.nom }}</Link>
+                        </dd>
+                        <dt>Fiche INPN</dt>
+                        <dd><a :href="zonage.url_inpn" target="_blank" rel="noopener">Consulter la fiche INPN ↗</a></dd>
+                    </dl>
+                    <div v-if="enfants.length > 0">
+                        <h3>ZNIEFF I rattachées ({{ enfants.length }})</h3>
+                        <ul class="communes-liste">
+                            <li v-for="e in enfants" :key="e.id">
+                                <Link :href="route('znieff.show', e.id)">{{ e.nom }}</Link>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
             </div>
-            <div>
-                <MiniCarte :couches="[{ url: zonage.geojson, famille: zonage.famille, href: route('znieff.show', zonage.id), label: zonage.nom }]" :hauteur="260" />
-                <p class="hint" style="margin-top:.4rem">Périmètre simplifié pour l'affichage, sans perte visible (INPN, MNHN).</p>
-            </div>
-        </div>
-
-        <h2>Caractéristiques</h2>
-        <div class="plate">
-            <dl class="kv">
-                <dt>Type de zone</dt><dd>{{ type }}</dd>
-                <dt>Superficie totale</dt>
-                <dd>
-                    {{ zonage.superficie_ha }}
-                    <small v-if="zonage.superficie_ref_ha">(superficie INPN : {{ zonage.superficie_ref_ha }} — écart ≈ ± 1 %)</small>
-                </dd>
-                <dt>Précision de saisie</dt><dd>{{ zonage.precision_saisie }}</dd>
-                <dt>Création du zonage</dt><dd>{{ zonage.date_crea }}</dd>
-                <dt>Dernière modification géométrique</dt><dd>{{ zonage.date_modif_geo }}</dd>
-                <dt v-if="parent">ZNIEFF II de rattachement</dt>
-                <dd v-if="parent">
-                    <Link :href="route('znieff.show', parent.id)">{{ parent.nom }}</Link>
-                </dd>
-                <dt>Fiche INPN</dt>
-                <dd><a :href="zonage.url_inpn" target="_blank" rel="noopener">Consulter la fiche INPN ↗</a></dd>
-            </dl>
-            <div v-if="enfants.length > 0">
-                <h3>ZNIEFF I rattachées ({{ enfants.length }})</h3>
-                <ul class="communes-liste">
-                    <li v-for="e in enfants" :key="e.id">
-                        <Link :href="route('znieff.show', e.id)">{{ e.nom }}</Link>
-                    </li>
-                </ul>
-            </div>
+            <aside class="fiche-carte">
+                <MiniCarte :couches="[{ url: zonage.geojson, famille: zonage.famille, href: route('znieff.show', zonage.id), label: zonage.nom }]" :hauteur="320" />
+                <p class="hint">Périmètre simplifié pour l'affichage (INPN, MNHN).</p>
+            </aside>
         </div>
 
         <h2>Communes concernées</h2>

@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -118,6 +119,31 @@ final class Croisements
         return self::communes('ap_communes', 'ap_id', $id);
     }
 
+    /**
+     * Communes d'un zonage ZNIEFF, paginées : la liste complète n'est
+     * jamais envoyée dans les props d'une fiche (convention « pagination
+     * serveur », AGENTS.md). Le chapeau a besoin du total et de la commune
+     * la plus couverte — calculés sur le périmètre entier, hors page.
+     *
+     * @return array{total: int, page: int, derniere: int, items: array<int, array{insee: string, slug: string, nom: string, dept: string, surface_ha: float, part_zonage: float, part_commune: float}>, principale: ?array{nom: string, part_commune: float}}
+     */
+    public static function communesZonagePagine(string $zonageId, int $page, int $parPage): array
+    {
+        return self::communesPaginees('zonage_communes', 'zonage_id', $zonageId, $page, $parPage);
+    }
+
+    /** Communes d'un site Natura 2000, paginées (même contrat). */
+    public static function communesNaturaPagine(string $code, int $page, int $parPage): array
+    {
+        return self::communesPaginees('natura_communes', 'site_code', $code, $page, $parPage);
+    }
+
+    /** Communes d'une aire protégée, paginées (même contrat). */
+    public static function communesAirePagine(string $id, int $page, int $parPage): array
+    {
+        return self::communesPaginees('ap_communes', 'ap_id', $id, $page, $parPage);
+    }
+
     // ------------------------------------------------------------------
     // Interne
     // ------------------------------------------------------------------
@@ -147,20 +173,73 @@ final class Croisements
      */
     private static function communes(string $pivot, string $idCol, string $id): array
     {
+        return self::communesQuery($pivot, $idCol, $id)
+            ->get(['c.insee', 'c.slug', 'c.nom', 'c.dept', 'p.surface_ha', 'p.part_zonage', 'p.part_commune'])
+            ->map(fn ($r) => self::ligneCommune($r))
+            ->all();
+    }
+
+    /**
+     * Version paginée de {@see communes()} : total, page bornée
+     * (au-delà de la dernière → dernière page) et commune la plus
+     * couverte calculées sur le périmètre entier.
+     *
+     * @return array{total: int, page: int, derniere: int, items: array<int, array{insee: string, slug: string, nom: string, dept: string, surface_ha: float, part_zonage: float, part_commune: float}>, principale: ?array{nom: string, part_commune: float}}
+     */
+    private static function communesPaginees(string $pivot, string $idCol, string $id, int $page, int $parPage): array
+    {
+        $total = (int) DB::table($pivot)->where($idCol, $id)->count();
+        $derniere = max(1, (int) ceil($total / $parPage));
+        $page = min(max(1, $page), $derniere);
+
+        $items = self::communesQuery($pivot, $idCol, $id)
+            ->forPage($page, $parPage)
+            ->get(['c.insee', 'c.slug', 'c.nom', 'c.dept', 'p.surface_ha', 'p.part_zonage', 'p.part_commune'])
+            ->map(fn ($r) => self::ligneCommune($r))
+            ->all();
+
+        $principale = self::communesQuery($pivot, $idCol, $id)
+            ->reorder('p.part_commune', 'desc')
+            ->first(['c.nom', 'p.part_commune']);
+
+        return [
+            'total' => $total,
+            'page' => $page,
+            'derniere' => $derniere,
+            'items' => $items,
+            'principale' => $principale !== null
+                ? ['nom' => (string) $principale->nom, 'part_commune' => (float) $principale->part_commune]
+                : null,
+        ];
+    }
+
+    /**
+     * Lignes d'un pivot côté communes, triées par surface d'intersection
+     * décroissante —base commune des variantes complètes et paginées.
+     *
+     * @return Builder
+     */
+    private static function communesQuery(string $pivot, string $idCol, string $id)
+    {
         return DB::table($pivot.' as p')
             ->join('communes as c', 'c.insee', '=', 'p.insee')
             ->where('p.'.$idCol, $id)
-            ->orderByDesc('p.surface_ha')
-            ->get(['c.insee', 'c.slug', 'c.nom', 'c.dept', 'p.surface_ha', 'p.part_zonage', 'p.part_commune'])
-            ->map(fn ($r) => [
-                'insee' => (string) $r->insee,
-                'slug' => (string) $r->slug,
-                'nom' => (string) $r->nom,
-                'dept' => (string) $r->dept,
-                'surface_ha' => (float) $r->surface_ha,
-                'part_zonage' => (float) $r->part_zonage,
-                'part_commune' => (float) $r->part_commune,
-            ])
-            ->all();
+            ->orderByDesc('p.surface_ha');
+    }
+
+    /**
+     * @return array{insee: string, slug: string, nom: string, dept: string, surface_ha: float, part_zonage: float, part_commune: float}
+     */
+    private static function ligneCommune(\stdClass $r): array
+    {
+        return [
+            'insee' => (string) $r->insee,
+            'slug' => (string) $r->slug,
+            'nom' => (string) $r->nom,
+            'dept' => (string) $r->dept,
+            'surface_ha' => (float) $r->surface_ha,
+            'part_zonage' => (float) $r->part_zonage,
+            'part_commune' => (float) $r->part_commune,
+        ];
     }
 }

@@ -74,12 +74,14 @@ class AireProtegeeController extends Controller
      * Fiche d'une aire protégée (APPB, RNR, RNN… — zonage juridique, à
      * la différence d'une ZNIEFF qui est un inventaire scientifique).
      */
-    public function show(string $id): Response
+    public function show(Request $request, string $id): Response
     {
         $id = strtoupper($id);
         $aire = AireProtegee::query()->findOrFail($id);
 
-        $communes = Croisements::communesAire($aire->id);
+        // Liste des communes paginée côté serveur (convention AGENTS.md).
+        $page = max(1, (int) $request->query('page', '1'));
+        $communes = Croisements::communesAirePagine($aire->id, $page, self::PAR_PAGE);
 
         $chapeau = Chapeaux::aire([
             'id' => $aire->id,
@@ -91,7 +93,7 @@ class AireProtegeeController extends Controller
             'gestionnaire' => $aire->gestionnaire,
             'date_crea_sign' => $aire->date_crea_sign?->toDateString(),
             'date_modif_geo' => $aire->date_modif_geo?->toDateString(),
-        ], $communes);
+        ], $communes['total'], $communes['principale']);
 
         $url = route('ap.show', $aire->id);
 
@@ -120,8 +122,9 @@ class AireProtegeeController extends Controller
                 'surface_ha' => Chapeaux::ha($c['surface_ha']),
                 'part_zonage' => Chapeaux::pct($c['part_zonage']),
                 'part_commune' => Chapeaux::pct($c['part_commune']),
-            ], $communes),
-            'nbCommunes' => count($communes),
+            ], $communes['items']),
+            'nbCommunes' => $communes['total'],
+            'pagination' => $this->paginationFiche('ap.show', ['id' => $aire->id], $communes['page'], self::PAR_PAGE, $communes['total']),
         ]);
     }
 

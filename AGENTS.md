@@ -23,6 +23,28 @@ puis exportées en SQL portable + GeoJSON statiques.
 - Interdiction absolue de rediffuser les espèces/habitats : renvoi vers l'INPN.
 - Données INPN : conditions INPN/MNHN, **jamais LO 2.0**. Code : AGPL-3.0.
 
+## Conventions UI
+
+- **Pagination serveur obligatoire** pour toute longue liste (communes, zonages,
+  espèces/habitats renvoyés, aires protégées…) : le serveur renvoie une page
+  limitée (paginator Laravel, `preserveScroll`/`only` Inertia pour les
+  rechargements), jamais la liste complète rendue côté client. Pas d'infinite
+  scroll non borné : l'utilisateur ne doit pas devoir scroller une liste
+  interminable (pagination visible par numéros si la liste dépasse ~2 pages).
+
+## Vérifications (économie de temps)
+
+- **Ne jamais relancer toute la suite** pour un changement ciblé : n'exécuter
+  que les tests et vérifications des **fichiers touchés**.
+  - Test d'un seul contrôleur/service : `php artisan test tests/Feature/<Fiche…>Test.php`
+    (encore plus fin : `--filter <méthode>`).
+  - Style : `./vendor/bin/pint <fichiers touchés>` (jamais sur tout le dépôt).
+  - Analyse : `./vendor/bin/phpstan analyse <fichiers touchés> --no-progress`.
+  - La suite complète (`php artisan test` sans filtre + Pint global) ne se
+    lance qu'avant une mise en prod ou un commit de bout en bout, et les
+    erreurs PHPStan « memory limit » ne sont pas des échecs : relancer avec
+    `--memory-limit=1G` si besoin.
+
 ## Layout
 
 - `app/Services/InpnImportService.php` — imports ZNIEFF (shapefile), Natura 2000

@@ -2,6 +2,7 @@
 import { Head, Link } from '@inertiajs/vue3';
 import Layout from '../../Components/Layout.vue';
 import BadgeFamille from '../../Components/BadgeFamille.vue';
+import ListePager from '../../Components/ListePager.vue';
 import MiniCarte from '../../Components/MiniCarte.vue';
 
 const props = defineProps({
@@ -12,6 +13,7 @@ const props = defineProps({
     enfants: { type: Array, required: true },
     communes: { type: Array, required: true },
     nbCommunes: { type: Number, required: true },
+    pagination: { type: Object, required: true }, // pagination serveur de la liste des communes
 });
 
 const type = props.zonage.famille === 'z1' ? 'ZNIEFF I' : 'ZNIEFF II';
@@ -84,6 +86,7 @@ const type = props.zonage.famille === 'z1' ? 'ZNIEFF I' : 'ZNIEFF II';
                     </tr>
                 </tbody>
             </table>
+            <ListePager :pagination="pagination" :only="['communes', 'pagination']" />
             <p class="hint">
                 Surfaces d'intersection calculées par le pipeline du portail (géométrie INPN × contours
                 communaux IGN AdminExpress, en Lambert-93), écart de mesure ≈ ± 1 %.

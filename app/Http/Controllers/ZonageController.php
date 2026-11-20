@@ -68,14 +68,18 @@ class ZonageController extends Controller
      * Superficie affichée = aire géométrique Lambert-93 (cohérente avec
      * les parts), référence INPN conservée — écart ≈ ± 1 % documenté.
      */
-    public function show(string $id): Response
+    public function show(Request $request, string $id): Response
     {
         $zonage = Zonage::query()->findOrFail($id);
         if ($zonage->famille !== 'z1' && $zonage->famille !== 'z2') {
             abort(404);
         }
 
-        $communes = Croisements::communesZonage($zonage->id);
+        // Liste des communes paginée côté serveur (convention AGENTS.md) :
+        // une ZNIEFF II peut couvrir plus de 100 communes, la liste
+        // complète n'est jamais envoyée au client.
+        $page = max(1, (int) $request->query('page', '1'));
+        $communes = Croisements::communesZonagePagine($zonage->id, $page, self::PAR_PAGE);
         /** @var Zonage|null $parent */
         $parent = $zonage->parent()->first(['id', 'nom', 'famille']);
         /** @var Collection<int, Zonage> $enfants */
@@ -89,7 +93,7 @@ class ZonageController extends Controller
             'superficie_ref_ha' => $zonage->superficie_ref_ha,
             'date_crea' => $zonage->date_crea?->toDateString(),
             'date_modif_geo' => $zonage->date_modif_geo?->toDateString(),
-        ], $communes);
+        ], $communes['total'], $communes['principale']);
 
         $url = route('znieff.show', $zonage->id);
 
@@ -127,8 +131,9 @@ class ZonageController extends Controller
                 'surface_ha' => Chapeaux::ha($c['surface_ha']),
                 'part_zonage' => Chapeaux::pct($c['part_zonage']),
                 'part_commune' => Chapeaux::pct($c['part_commune']),
-            ], $communes),
-            'nbCommunes' => count($communes),
+            ], $communes['items']),
+            'nbCommunes' => $communes['total'],
+            'pagination' => $this->paginationFiche('znieff.show', ['id' => $zonage->id], $communes['page'], self::PAR_PAGE, $communes['total']),
         ]);
     }
 
@@ -153,7 +158,7 @@ class ZonageController extends Controller
     {
         $zonage = Zonage::query()->find($id);
         if ($zonage !== null) {
-            return $this->show($id);
+            return $this->show(request(), $id);
         }
 
         return $this->numero($id);

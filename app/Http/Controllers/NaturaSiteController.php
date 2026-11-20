@@ -68,12 +68,14 @@ class NaturaSiteController extends Controller
      * Espèces et habitats d'intérêt communautaire : renvoi INPN, jamais
      * rediffusés.
      */
-    public function show(string $code): Response
+    public function show(Request $request, string $code): Response
     {
         $code = strtoupper($code);
         $site = NaturaSite::query()->findOrFail($code);
 
-        $communes = Croisements::communesNatura($site->code);
+        // Liste des communes paginée côté serveur (convention AGENTS.md).
+        $page = max(1, (int) $request->query('page', '1'));
+        $communes = Croisements::communesNaturaPagine($site->code, $page, self::PAR_PAGE);
 
         $chapeau = Chapeaux::natura([
             'code' => $site->code,
@@ -83,7 +85,7 @@ class NaturaSiteController extends Controller
             'superficie_ref_ha' => $site->superficie_ref_ha,
             'date_designation' => $site->date_designation?->toDateString(),
             'date_modif_geo' => $site->date_modif_geo?->toDateString(),
-        ], $communes);
+        ], $communes['total'], $communes['principale']);
 
         $url = route('natura.show', $site->code);
 
@@ -109,8 +111,9 @@ class NaturaSiteController extends Controller
                 'surface_ha' => Chapeaux::ha($c['surface_ha']),
                 'part_zonage' => Chapeaux::pct($c['part_zonage']),
                 'part_commune' => Chapeaux::pct($c['part_commune']),
-            ], $communes),
-            'nbCommunes' => count($communes),
+            ], $communes['items']),
+            'nbCommunes' => $communes['total'],
+            'pagination' => $this->paginationFiche('natura.show', ['code' => $site->code], $communes['page'], self::PAR_PAGE, $communes['total']),
         ]);
     }
 

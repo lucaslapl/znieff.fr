@@ -91,33 +91,14 @@ final class Chapeaux
     }
 
     /**
-     * Commune la plus couverte d'un zonage (« {nom} ({x} % de son
-     * territoire) »), pour les chapeaux. Retour null si aucune.
-     *
-     * @param  array<int, array{nom: string, part_commune: ?float}>  $communes
-     * @return array{nom: string, part_commune: float}|null
-     */
-    public static function communePrincipale(array $communes): ?array
-    {
-        $meilleure = null;
-        foreach ($communes as $c) {
-            $part = (float) ($c['part_commune'] ?? 0);
-            if ($meilleure === null || $part > (float) $meilleure['part_commune']) {
-                $meilleure = ['nom' => (string) $c['nom'], 'part_commune' => $part];
-            }
-        }
-
-        return $meilleure;
-    }
-
-    /**
      * Chapeau d'une fiche ZNIEFF — faits uniquement : inventaire, dates
      * INPN, superficie mesurée, communes, commune la plus couverte.
      *
      * @param  array{id: string, famille: string, nom: string, superficie_ha: ?float, superficie_ref_ha: ?float, date_crea: ?string, date_modif_geo: ?string}  $z
-     * @param  array<int, array{nom: string, part_commune: ?float}>  $communes
+     * @param  int  $nbCommunes  total du périmètre (pas seulement la page affichée)
+     * @param  array{nom: string, part_commune: float}|null  $principale  commune la plus couverte du périmètre entier
      */
-    public static function znieff(array $z, array $communes): string
+    public static function znieff(array $z, int $nbCommunes, ?array $principale): string
     {
         $type = $z['famille'] === 'z1' ? 'de type I' : 'de type II';
         $phrase = 'ZNIEFF '.$type.' « '.$z['nom'].' » ('.$z['id'].'), recensée dans l\'inventaire national du patrimoine naturel';
@@ -136,12 +117,11 @@ final class Chapeaux
             }
             $phrase .= '. ';
         }
-        $n = count($communes);
+        $n = $nbCommunes;
         if ($n === 0) {
             $phrase .= 'Le périmètre ne traverse aucune commune du référentiel communal. ';
         } else {
             $phrase .= 'Il concerne '.$n.' commune'.($n > 1 ? 's' : '');
-            $principale = self::communePrincipale($communes);
             if ($principale !== null && $principale['part_commune'] > 0) {
                 $phrase .= ', dont '.$principale['nom'].' couverte à '.self::pct($principale['part_commune']).' de son territoire';
             }
@@ -156,9 +136,10 @@ final class Chapeaux
      * Chapeau d'une fiche Natura 2000.
      *
      * @param  array{code: string, type: ?string, nom: string, superficie_ha: ?float, superficie_ref_ha: ?float, date_designation: ?string, date_modif_geo: ?string}  $s
-     * @param  array<int, array{nom: string, part_commune: ?float}>  $communes
+     * @param  int  $nbCommunes  total du périmètre (pas seulement la page affichée)
+     * @param  array{nom: string, part_commune: float}|null  $principale  commune la plus couverte du périmètre entier
      */
-    public static function natura(array $s, array $communes): string
+    public static function natura(array $s, int $nbCommunes, ?array $principale): string
     {
         $type = strtoupper((string) ($s['type'] ?? 'SIC'));
         $phrase = 'Site Natura 2000 ('.$type.') « '.$s['nom'].' » ('.$s['code'].')';
@@ -173,9 +154,8 @@ final class Chapeaux
             $phrase .= 'Le site s\'étend sur '.self::ha($s['superficie_ha'])
                 .' — aire géométrique du périmètre officiel, écart de mesure ≈ ± 1 %. ';
         }
-        $n = count($communes);
+        $n = $nbCommunes;
         $phrase .= 'Il concerne '.$n.' commune'.($n > 1 ? 's' : '').', ';
-        $principale = self::communePrincipale($communes);
         if ($principale !== null && $principale['part_commune'] > 0) {
             $phrase .= 'dont '.$principale['nom'].' pour '.self::pct($principale['part_commune']).' de son territoire. ';
         } else {
@@ -190,9 +170,10 @@ final class Chapeaux
      * Chapeau d'une fiche d'aire protégée.
      *
      * @param  array{id: string, type_nom: ?string, nom: string, superficie_ha: ?float, superficie_ref_ha: ?float, acte: ?string, gestionnaire: ?string, date_crea_sign: ?string, date_modif_geo: ?string}  $a
-     * @param  array<int, array{nom: string, part_commune: ?float}>  $communes
+     * @param  int  $nbCommunes  total du périmètre (pas seulement la page affichée)
+     * @param  array{nom: string, part_commune: float}|null  $principale  commune la plus couverte du périmètre entier
      */
-    public static function aire(array $a, array $communes): string
+    public static function aire(array $a, int $nbCommunes, ?array $principale): string
     {
         $phrase = 'Aire protégée'.($a['type_nom'] !== null && $a['type_nom'] !== '' ? ' — '.$a['type_nom'] : '')
             .' « '.$a['nom'].' » ('.$a['id'].')';
@@ -213,9 +194,8 @@ final class Chapeaux
             $phrase .= 'Périmètre de '.self::ha($a['superficie_ha'])
                 .' — géométrie fine précalculée à ~5 m à l\'import, écart de mesure ≈ ± 1 %. ';
         }
-        $n = count($communes);
+        $n = $nbCommunes;
         $phrase .= 'L\'aire concerne '.$n.' commune'.($n > 1 ? 's' : '').' du référentiel communal';
-        $principale = self::communePrincipale($communes);
         if ($principale !== null && $principale['part_commune'] > 0) {
             $phrase .= ', dont '.$principale['nom'].' couverte à '.self::pct($principale['part_commune']).' de son territoire';
         }

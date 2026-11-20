@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Inertia\Testing\AssertableInertia;
 use Tests\Concerns\SemeFiches;
 use Tests\TestCase;
@@ -101,5 +102,86 @@ class FicheZonageTest extends TestCase
     {
         $this->get('/znieff/999999999')->assertStatus(404);
         $this->get('/znieff/num/00000000')->assertStatus(404);
+    }
+
+    public function test_la_liste_des_communes_est_paginee_cote_serveur(): void
+    {
+        $this->semeZnieffTrenteCommunes();
+
+        $page1 = $this->get('/znieff/230099999');
+        $page1->assertOk();
+        $page1->assertInertia(fn (AssertableInertia $page) => $page
+            ->component('Zonages/Show')
+            ->has('communes', 25)
+            // première page : les premières communes triées par surface décroissante
+            ->where('communes.0.slug', 'commune-test-1')
+            ->where('nbCommunes', 30)
+            ->where('pagination.page', 1)
+            ->where('pagination.derniere', 2)
+            ->where('pagination.url_suivante', fn (string $u) => str_contains($u, 'page=2'))
+            ->where('pagination.url_precedente', null)
+            // le chapeau couvre le périmètre entier, pas la page seule
+            ->where('chapeau', fn (string $c) => str_contains($c, '88,5 %'))
+        );
+
+        $page2 = $this->get('/znieff/230099999?page=2');
+        $page2->assertOk();
+        $page2->assertInertia(fn (AssertableInertia $page) => $page
+            ->has('communes', 5)
+            ->where('communes.0.slug', 'commune-test-26')
+            ->where('pagination.page', 2)
+            ->where('pagination.url_precedente', fn (string $u) => str_contains($u, 'page=1'))
+            ->where('pagination.url_suivante', null)
+        );
+    }
+
+    public function test_la_pagination_ne_deborde_pas_du_premier_et_dernier_page(): void
+    {
+        $this->semeZnieffTrenteCommunes();
+
+        $reponse = $this->get('/znieff/230099999?page=99999');
+
+        $reponse->assertOk();
+        $reponse->assertInertia(fn (AssertableInertia $page) => $page
+            // page bornée à la dernière : pas de liste vide en cascade
+            ->has('communes', 5)
+            ->where('pagination.page', 2)
+            ->where('pagination.derniere', 2)
+        );
+    }
+
+    /**
+     * Une ZNIEFF de 30 communes (une page de 25 ne suffit pas), dont la
+     * commune la plus couverte (part_commune max) n'est pas la première
+     * de la liste — pour vérifier le chapeau.
+     */
+    private function semeZnieffTrenteCommunes(): void
+    {
+        $lignes = [];
+        $pivot = [];
+        foreach (range(1, 30) as $i) {
+            $lignes[] = [
+                'insee' => str_pad((string) (90000 + $i), 5, '0', STR_PAD_LEFT),
+                'slug' => 'commune-test-'.$i,
+                'nom' => 'Commune test '.$i,
+                'dept' => '99', 'dept_nom' => 'Hors métropole', 'reg_code' => null, 'reg_nom' => null,
+                'population' => null, 'superficie_ha' => 100, 'superficie_calc_ha' => 100,
+                'lat' => 48.5, 'lng' => 2.5, 'codes_postaux' => null, 'has_abc' => false,
+            ];
+            $pivot[] = [
+                'zonage_id' => '230099999', 'insee' => str_pad((string) (90000 + $i), 5, '0', STR_PAD_LEFT),
+                'surface_ha' => 200 - $i, 'part_zonage' => 1.11, 'part_commune' => $i === 30 ? 88.5 : 1.0,
+            ];
+        }
+        DB::table('communes')->insert($lignes);
+        DB::table('zonages')->insert([
+            'id' => '230099999', 'famille' => 'z2', 'nom' => 'Plateau de test',
+            'num_regional' => null, 'id_parent' => null,
+            'superficie_ha' => 1000.0, 'superficie_ref_ha' => 1000.0,
+            'precision_saisie' => '1/25 000', 'date_crea' => '2000-01-01',
+            'date_modif_geo' => '2024-01-01', 'territoire' => 'metrop', 'volet' => 'CONT',
+            'url_inpn' => 'https://inpn.mnhn.fr/zone/znieff/230099999',
+        ]);
+        DB::table('zonage_communes')->insert($pivot);
     }
 }

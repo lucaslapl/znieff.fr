@@ -2,6 +2,7 @@
 import { Head, Link } from '@inertiajs/vue3';
 import Layout from '../../Components/Layout.vue';
 import BadgeFamille from '../../Components/BadgeFamille.vue';
+import ListePager from '../../Components/ListePager.vue';
 import MiniCarte from '../../Components/MiniCarte.vue';
 
 const props = defineProps({
@@ -10,6 +11,7 @@ const props = defineProps({
     chapeau: { type: String, required: true },
     communes: { type: Array, required: true },
     nbCommunes: { type: Number, required: true },
+    pagination: { type: Object, required: true }, // pagination serveur de la liste des communes
 });
 </script>
 
@@ -68,6 +70,7 @@ const props = defineProps({
                     </tr>
                 </tbody>
             </table>
+            <ListePager :pagination="pagination" :only="['communes', 'pagination']" />
             <p class="hint">
                 Surfaces d'intersection précalculées (géométrie INPN × contours communaux IGN,
                 Lambert-93), écart de mesure ≈ ± 1 %.

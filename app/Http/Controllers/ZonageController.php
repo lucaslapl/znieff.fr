@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Zonage;
 use App\Support\Chapeaux;
 use App\Support\Croisements;
+use App\Support\Especes;
 use App\Support\Exports;
 use App\Support\Recherche;
 use Illuminate\Database\Eloquent\Builder as EloquentBuilder;
@@ -80,6 +81,16 @@ class ZonageController extends Controller
         // complète n'est jamais envoyée au client.
         $page = max(1, (int) $request->query('page', '1'));
         $communes = Croisements::communesZonagePagine($zonage->id, $page, self::PAR_PAGE);
+        // Espèces déterminantes paginées elles aussi (liste interne à la
+        // fiche, paramètre ?page_especes=) — hors espèces confidentielles
+        // (filtre absolu posé dans App\Support\Especes). Sous-onglets par
+        // groupe taxonomique : ?groupe=Oiseaux filtre côté serveur (la
+        // pagination suit le filtre).
+        $pageEspeces = max(1, (int) $request->query('page_especes', '1'));
+        $groupes = Especes::groupesZonage($zonage->id);
+        $groupe = $request->query('groupe');
+        $groupe = is_string($groupe) && in_array($groupe, array_column($groupes, 'groupe'), true) ? $groupe : null;
+        $especes = Especes::especesZonagePagine($zonage->id, $pageEspeces, self::PAR_PAGE, $groupe);
         /** @var Zonage|null $parent */
         $parent = $zonage->parent()->first(['id', 'nom', 'famille']);
         /** @var Collection<int, Zonage> $enfants */
@@ -134,6 +145,19 @@ class ZonageController extends Controller
             ], $communes['items']),
             'nbCommunes' => $communes['total'],
             'pagination' => $this->paginationFiche('znieff.show', ['id' => $zonage->id], $communes['page'], self::PAR_PAGE, $communes['total']),
+            'especes' => $especes['items'],
+            'nbEspeces' => $especes['total'],
+            'nbEspecesTotal' => array_sum(array_column($groupes, 'n')),
+            'groupes' => $groupes,
+            'groupeActif' => $groupe,
+            'paginationEspeces' => $this->paginationFiche(
+                'znieff.show',
+                array_merge(['id' => $zonage->id], $groupe !== null ? ['groupe' => $groupe] : []),
+                $especes['page'],
+                self::PAR_PAGE,
+                $especes['total'],
+                'page_especes'
+            ),
         ]);
     }
 

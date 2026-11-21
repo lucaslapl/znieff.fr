@@ -127,7 +127,7 @@ final class Chapeaux
             }
             $phrase .= '. ';
         }
-        $phrase .= 'Les espèces et habitats déterminants restent consultables sur la fiche INPN, jamais rediffusés ici.';
+        $phrase .= 'Les espèces déterminantes (hors espèces confidentielles) sont listées sur cette page ; le descriptif complet (habitats, facteurs d\'évolution) reste sur la fiche INPN.';
 
         return $phrase;
     }
@@ -161,7 +161,7 @@ final class Chapeaux
         } else {
             $phrase .= 'selon le croisement précalculé du portail. ';
         }
-        $phrase .= 'Les espèces et habitats d\'intérêt communautaire ne sont pas rediffusés : consultez la fiche INPN et le document d\'objectifs du site.';
+        $phrase .= 'Les habitats et espèces d\'intérêt communautaire du formulaire standard sont listés sur cette page ; le document d\'objectifs (DOCOB) reste consultable sur la fiche INPN.';
 
         return $phrase;
     }

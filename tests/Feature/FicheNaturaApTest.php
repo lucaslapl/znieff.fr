@@ -58,6 +58,45 @@ class FicheNaturaApTest extends TestCase
         );
     }
 
+    /**
+     * Sections « Habitats d'intérêt communautaire » et « Espèces des
+     * directives » de la fiche Natura 2000 : FSD INPN listé tel quel,
+     * paginé côté serveur (?page_habitats= / ?page_especes=).
+     */
+    public function test_fiche_natura_habitats_et_especes(): void
+    {
+        $reponse = $this->get('/natura/FR2300128');
+
+        $reponse->assertOk();
+        $reponse->assertInertia(fn (AssertableInertia $page) => $page
+            ->component('Natura/Show')
+            ->where('nbHabitats', 2)
+            ->has('habitats', 2)
+            // tri par code EUR : 2110 avant 9130
+            ->where('habitats.0.cd_ue', '2110')
+            ->where('habitats.0.nom', 'Dunes mobiles du cordon littoral à Ammophila arenaria')
+            ->where('habitats.0.prioritaire', true)
+            ->where('habitats.0.cd_hab', '2682')
+            ->where('habitats.0.representativite', 'B')
+            ->where('habitats.0.conservation', 'C')
+            ->where('habitats.0.evaluation_globale', 'C')
+            ->where('habitats.1.cd_ue', '9130')
+            ->where('paginationHabitats.total', 2)
+            ->where('nbEspeces', 2)
+            ->has('especes', 2)
+            // tri par nom scientifique : Miniopterus avant Pluvialis
+            ->where('especes.0.nom_scientifique', 'Miniopterus schreibersii')
+            ->where('especes.0.nom_vernaculaire', 'Minioptère de Schreibers')
+            ->where('especes.0.annexe_ii', true)
+            ->where('especes.0.annexe_1', false)
+            ->where('especes.1.code_n2000', 'A136')
+            ->where('especes.1.nom_scientifique', 'Pluvialis apricaria')
+            ->where('especes.1.annexe_1', true) // directive Oiseaux
+            ->where('especes.1.presences', 'r,w') // statuts FSD fusionnés
+            ->where('paginationEspeces.total', 2)
+        );
+    }
+
     public function test_fiche_aire_protegee(): void
     {
         $reponse = $this->get('/ap/FR3800583');

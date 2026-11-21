@@ -42,6 +42,21 @@ class SqlPortableExportTest extends TestCase
             'zonage_id' => '230009093', 'insee' => '27375',
             'surface_ha' => 1340.1, 'part_zonage' => 20.57, 'part_commune' => 49.54,
         ]);
+        DB::table('znieff_especes')->insert([
+            ['zonage_id' => '230009093', 'cd_ref' => 3161, 'nom_cite' => '<i>Pluvialis apricaria</i>', 'groupe_taxo' => 'Oiseaux', 'determinante' => true, 'confidentielle' => false],
+            ['zonage_id' => '230009093', 'cd_ref' => 999001, 'nom_cite' => '<i>Rhinolophus ferrumequinum</i>', 'groupe_taxo' => 'Mammifères', 'determinante' => false, 'confidentielle' => true],
+        ]);
+        DB::table('natura_sites')->insert([
+            'code' => 'FR2300128', 'type' => 'SIC', 'nom' => "La Vallée de l'Eure",
+            'superficie_ha' => 728.5, 'superficie_ref_ha' => 731.0,
+            'precision_saisie' => '1/25 000', 'territoire' => 'metrop',
+        ]);
+        DB::table('natura_especes')->insert([
+            ['site_code' => 'FR2300128', 'code_n2000' => 'A136', 'cd_ref' => 3161, 'nom_scientifique' => 'Pluvialis apricaria', 'nom_vernaculaire' => 'Pluvier doré', 'taxgroup' => 'Oiseaux', 'annexe_ii' => false, 'annexe_1' => true, 'prioritaire' => false, 'presences' => 'r,w'],
+        ]);
+        DB::table('natura_habitats')->insert([
+            ['site_code' => 'FR2300128', 'cd_ue' => '2110', 'nom' => 'Dunes mobiles', 'prioritaire' => true, 'cd_hab' => '2682', 'representativite' => 'B', 'conservation' => 'C', 'evaluation_globale' => 'C'],
+        ]);
 
         $out = storage_path('framework/testing/portail-deploy-test.sql');
         @unlink($out);
@@ -73,6 +88,24 @@ class SqlPortableExportTest extends TestCase
         // de commune (codes_postaux puis has_abc)
         $this->assertStringContainsString("'27400', 1", $sql);
         $this->assertStringContainsString("'Forêt de Bord et de Louviers'", $sql);
+
+        // Tables naturalistes dans le dump (ordre FK : enfants après parents)
+        $this->assertSame(2, $counts['znieff_especes']);
+        $this->assertSame(1, $counts['natura_especes']);
+        $this->assertSame(1, $counts['natura_habitats']);
+        $this->assertStringContainsString('DELETE FROM znieff_especes;', $sql);
+        $this->assertStringContainsString('DELETE FROM natura_especes;', $sql);
+        $this->assertStringContainsString('DELETE FROM natura_habitats;', $sql);
+        $this->assertGreaterThan(
+            strpos($sql, 'DELETE FROM znieff_especes;'),
+            strpos($sql, 'DELETE FROM zonages;'),
+            'les espèces sont vidées avant leur zonage parent'
+        );
+        // Booléens des tables d'espèces au format MySQL 1/0
+        // (determinante, confidentielle en fin de ligne avant les timestamps)
+        $this->assertStringContainsString("'Oiseaux', 1, 0", $sql);
+        $this->assertStringContainsString("'Mammifères', 0, 1", $sql);
+        $this->assertStringContainsString("'Oiseaux', 0, 1, 0, 'r,w'", $sql);
 
         unlink($out);
     }

@@ -68,8 +68,10 @@ const sources = computed(() => Object.entries(versions.value).map(([cle, v]) => 
         <div class="plate">
             <ul style="margin-left:1.2rem">
                 <li>
-                    Aucune localisation précise d'espèce n'est diffusée. Les espèces déterminantes et les habitats
-                    restent sur la fiche INPN : le portail n'en rediffuse jamais le contenu.
+                    Aucune localisation précise d'espèce n'est diffusée. Les espèces déterminantes ZNIEFF
+                    (hors <strong>espèces confidentielles</strong>) et les
+                    espèces/habitats Natura 2000 du formulaire standard sont rediffusés tels quels, sous les
+                    licences de l'INPN, avec attribution MNHN — comme sur l'Observatoire des ABC.
                 </li>
                 <li>Aucun indicateur composite, aucun « score » environnemental de commune — uniquement des faits bruts.</li>
                 <li>
@@ -88,9 +90,11 @@ const sources = computed(() => Object.entries(versions.value).map(([cle, v]) => 
         <div class="plate">
             <p>
                 Les données ZNIEFF, Natura 2000 et aires protégées ne sont <strong>pas</strong> soumises à la Licence
-                Ouverte Etalab. Le portail affiche l'attribution MNHN sur chaque fiche et chaque export, et renvoie aux
-                conditions de réutilisation du jeu de données INPN. Les exports CSV et GeoJSON du portail sont fournis
-                sous ces conditions, non sous LO 2.0.
+                Ouverte Etalab : elles sont réutilisées sous les
+                <a href="https://inpn.mnhn.fr/legal" target="_blank" rel="noopener">licences de l'INPN ↗</a>,
+                avec attribution MNHN et version de la base affichées sur chaque fiche et chaque export.
+                Les exports CSV et GeoJSON du portail sont fournis sous ces conditions, non sous LO 2.0.
+                Toutes les listes d'espèces sont affichées hors espèces confidentielles.
             </p>
             <p style="margin-top:.6rem">
                 Une API publique versionnée (sur le modèle de l'API v1 de l'Observatoire des ABC) est prévue dans une

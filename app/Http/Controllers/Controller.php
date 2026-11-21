@@ -6,20 +6,24 @@ abstract class Controller
 {
     /**
      * Pagination d'une liste interne à une fiche (communes d'un zonage,
-     * etc.) : paginée côté serveur, liens GET vers la même fiche avec
-     * ?page=N (crawlables, et réutilisés par les rechargements partiels
-     * Inertia). Zéro si la liste est vide — le pager ne s'affiche pas.
+     * espèces déterminantes, habitats Natura…) : paginée côté serveur,
+     * liens GET vers la même fiche avec ?page=N (crawlables, et réutilisés
+     * par les rechargements partiels Inertia). Zéro si la liste est vide —
+     * le pager ne s'affiche pas.
+     *
+     * Plusieurs listes paginées sur une même fiche : $paramQuery distingue
+     * les paramètres de query (ex. 'page', 'page_especes', 'page_habitats').
      *
      * @param  array<string, mixed>  $params  paramètres de route de la fiche
      * @return array{total: int, page: int, derniere: int, url_precedente: ?string, url_suivante: ?string}
      */
-    protected function paginationFiche(string $route, array $params, int $page, int $parPage, int $total): array
+    protected function paginationFiche(string $route, array $params, int $page, int $parPage, int $total, string $paramQuery = 'page'): array
     {
         $derniere = max(1, (int) ceil($total / $parPage));
         $page = min(max(1, $page), $derniere);
 
         $url = fn (int $p): ?string => $p >= 1 && $p <= $derniere
-            ? route($route, array_merge($params, ['page' => $p]))
+            ? route($route, array_merge($params, [$paramQuery => $p]))
             : null;
 
         return [

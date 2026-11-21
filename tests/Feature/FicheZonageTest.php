@@ -80,7 +80,7 @@ class FicheZonageTest extends TestCase
                 && str_contains($c, '6 557,68 ha')
                 && str_contains($c, '2 communes')
                 && str_contains($c, 'dont Acquigny couverte à 88,2 %')
-                && str_contains($c, 'jamais rediffusés ici'))
+                && str_contains($c, 'hors espèces confidentielles'))
             // anti thin-content : meta dérivée du chapeau, sans HTML
             ->where('meta.description', fn (string $m) => $m !== '' && ! str_contains($m, '<'))
         );
@@ -147,6 +147,123 @@ class FicheZonageTest extends TestCase
             ->has('communes', 5)
             ->where('pagination.page', 2)
             ->where('pagination.derniere', 2)
+        );
+    }
+
+    /**
+     * Section « Espèces déterminantes » de la fiche ZNIEFF : seules les
+     * espèces déterminantes NON confidentielles sont listées — l'espèce
+     * confidentielle (Rhinolophus) et l'espèce non déterminante (Picus canus)
+     * restent en base mais ne sortent jamais (filtre absolu App\Support\Especes).
+     */
+    public function test_especes_determinantes_hors_confidentielles(): void
+    {
+        $reponse = $this->get('/znieff/230009093');
+
+        $reponse->assertOk();
+        $reponse->assertInertia(fn (AssertableInertia $page) => $page
+            ->component('Zonages/Show')
+            ->where('nbEspeces', 2) // 2 déterminantes visibles sur 4 lignes en base
+            ->has('especes', 2)
+            // tri groupe_taxo puis nom_cite : Mammifères avant Oiseaux
+            ->where('especes.0.groupe', 'Mammifères')
+            ->where('especes.0.nom', 'Miniopterus schreibersii (Kuhl, 1817)') // italique HTML retirée
+            ->where('especes.1.groupe', 'Oiseaux')
+            ->where('especes.1.nom', 'Pluvialis apricaria (Linnaeus, 1758)')
+            // l'espèce confidentielle n'apparaît nulle part dans les props
+            ->where('especes', fn ($e) => ! str_contains((string) json_encode($e), 'Rhinolophus'))
+            ->where('paginationEspeces.total', 2)
+            ->where('paginationEspeces.derniere', 1)
+        );
+
+        // la ZNIEFF I rattachée a sa propre espèce déterminante
+        $this->get('/znieff/230030467')->assertInertia(fn (AssertableInertia $page) => $page
+            ->where('nbEspeces', 1)
+            ->where('especes.0.nom', 'Triturus cristatus (Laurenti, 1768)')
+        );
+    }
+
+    /**
+     * Pagination serveur de la section « Espèces » (?page_especes=) :
+     * 32 espèces déterminantes visibles (2 semées + 30) → 25 + 7.
+     */
+    public function test_la_liste_des_especes_est_paginee_cote_serveur(): void
+    {
+        $this->semeZnieffTrenteEspeces();
+
+        $page1 = $this->get('/znieff/230009093');
+        $page1->assertOk();
+        $page1->assertInertia(fn (AssertableInertia $page) => $page
+            ->has('especes', 25)
+            ->where('nbEspeces', 32)
+            ->where('paginationEspeces.page', 1)
+            ->where('paginationEspeces.derniere', 2)
+            ->where('paginationEspeces.url_suivante', fn (string $u) => str_contains($u, 'page_especes=2'))
+        );
+
+        $page2 = $this->get('/znieff/230009093?page_especes=2');
+        $page2->assertOk();
+        $page2->assertInertia(fn (AssertableInertia $page) => $page
+            ->has('especes', 7)
+            ->where('paginationEspeces.page', 2)
+            ->where('paginationEspeces.url_precedente', fn (string $u) => str_contains($u, 'page_especes=1'))
+            ->where('paginationEspeces.url_suivante', null)
+        );
+    }
+
+    /**
+     * Sous-onglets par groupe taxonomique (?groupe=Oiseaux) : le filtre
+     * est posé côté serveur, la pagination le conserve dans ses URLs, et
+     * un groupe inconnu retombe sur « tous ».
+     */
+    public function test_sous_onglets_par_groupe_taxonomique(): void
+    {
+        $this->get('/znieff/230009093')->assertInertia(fn (AssertableInertia $page) => $page
+            ->where('groupeActif', null)
+            ->where('nbEspeces', 2)
+            ->where('nbEspecesTotal', 2)
+            ->where('groupes.0.groupe', 'Mammifères')
+            ->where('groupes.0.n', 1)
+            ->where('groupes.1.groupe', 'Oiseaux')
+            ->where('groupes.1.n', 1)
+        );
+
+        // Filtre serveur par groupe : seules les espèces du groupe, page 1.
+        $this->get('/znieff/230009093?groupe=Oiseaux')->assertInertia(fn (AssertableInertia $page) => $page
+            ->where('groupeActif', 'Oiseaux')
+            ->where('nbEspeces', 1)
+            ->has('especes', 1)
+            ->where('especes.0.nom', 'Pluvialis apricaria (Linnaeus, 1758)')
+            ->where('especes.0.groupe', 'Oiseaux')
+        );
+
+        // Groupe inconnu : ignoré, on retombe sur la liste complète.
+        $this->get('/znieff/230009093?groupe=Dinosaures')->assertInertia(fn (AssertableInertia $page) => $page
+            ->where('groupeActif', null)
+            ->where('nbEspeces', 2)
+            ->has('especes', 2)
+        );
+    }
+
+    /**
+     * La pagination des espèces conserve le groupe actif dans ses URLs.
+     */
+    public function test_la_pagination_des_especes_conserve_le_groupe(): void
+    {
+        $this->semeZnieffTrenteEspeces(); // 30 Oiseaux de plus → 31 visibles
+
+        $this->get('/znieff/230009093?groupe=Oiseaux')->assertInertia(fn (AssertableInertia $page) => $page
+            ->where('groupeActif', 'Oiseaux')
+            ->where('nbEspeces', 31)
+            ->has('especes', 25)
+            ->where('paginationEspeces.derniere', 2)
+            ->where('paginationEspeces.url_suivante', fn (string $u) => str_contains($u, 'groupe=Oiseaux') && str_contains($u, 'page_especes=2'))
+        );
+
+        $this->get('/znieff/230009093?groupe=Oiseaux&page_especes=2')->assertInertia(fn (AssertableInertia $page) => $page
+            ->where('paginationEspeces.page', 2)
+            ->has('especes', 6)
+            ->where('paginationEspeces.url_precedente', fn (string $u) => str_contains($u, 'groupe=Oiseaux') && str_contains($u, 'page_especes=1'))
         );
     }
 

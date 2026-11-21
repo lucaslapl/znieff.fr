@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\ReferentielImport;
 use App\Services\InpnImportService;
+use App\Support\Especes;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -70,5 +71,37 @@ class ImportZnieffAttributsTest extends TestCase
         $service->importZnieff(null, null, avecGeojson: true); // geojson ignoré sans PostGIS
 
         $this->assertSame(3, \DB::table('zonages')->count(), 'recharger ne duplique rien');
+    }
+
+    /**
+     * REF_ESPECE.csv (fixture) : les espèces du périmètre sont importées
+     * avec leurs flags — y compris l'espèce CONFIDENTIELLE, qui reste en
+     * base avec `confidentielle = true` mais ne doit jamais être lue
+     * (filtre absolu posé dans App\Support\Especes, testé ci-dessous).
+     */
+    public function test_importe_les_especes_avec_leur_flag_confidentielle(): void
+    {
+        $retour = app(InpnImportService::class)->importZnieff(null, null, avecGeojson: false);
+
+        $this->assertSame(5, $retour['especes'], 'la ligne FG_SUPP=true est filtrée');
+        $this->assertDatabaseCount('znieff_especes', 5);
+
+        $conf = \DB::table('znieff_especes')->where('cd_ref', 999001)->first();
+        $this->assertNotNull($conf);
+        $this->assertSame('230009093', $conf->zonage_id);
+        $this->assertEquals(1, (int) $conf->confidentielle, 'flag confidentielle conservé en base');
+        $this->assertEquals(0, (int) $conf->determinante);
+
+        $det = \DB::table('znieff_especes')->where('cd_ref', 3161)->first();
+        $this->assertEquals(1, (int) $det->determinante);
+        $this->assertEquals(0, (int) $det->confidentielle);
+        $this->assertSame('<i>Pluvialis apricaria</i> (Linnaeus, 1758)', $det->nom_cite);
+
+        // Lecture publique : seules les déterminantes NON confidentielles sortent.
+        $visibles = Especes::especesZonagePagine('230009093', 1, 25);
+        $this->assertSame(2, $visibles['total']);
+        $noms = array_column($visibles['items'], 'nom');
+        $this->assertContains('Miniopterus schreibersii (Kuhl, 1817)', $noms);
+        $this->assertNotContains('Rhinolophus ferrumequinum', $noms, 'confidentielle jamais listée');
     }
 }

@@ -20,13 +20,20 @@ puis exportées en SQL portable + GeoJSON statiques.
   `zonages`, pivots avec `surface_ha`, `part_zonage`, `part_commune`…).
 - Les cartes affichent des GeoJSON **précalculés** servis statiquement
   (`public/geo/`, générés par `portail:import-inpn`, jamais calculés en ligne).
-- Interdiction absolue de rediffuser les espèces/habitats : renvoi vers l'INPN.
-- Données INPN : conditions INPN/MNHN, **jamais LO 2.0**. Code : AGPL-3.0.
+- Données naturalistes INPN (espèces/habitats) : rediffusées **telles quelles** sous
+  les licences de l'INPN (<https://inpn.mnhn.fr/legal>), avec crédit INPN/MNHN et
+  version de la base sur chaque page — **même politique que l'Observatoire des
+  ABC** (décision 2026-11 : l'« interdiction absolue » antérieure était une
+  incompréhension). **Les espèces confidentielles (flag `confidentielle`) ne sont
+  JAMAIS affichées ni comptées** : le filtre `where('confidentielle', false)` est
+  posé côté requête dans `App\Support\Especes` (listes ET compteurs), jamais côté
+  affichage. Jamais de localisation précise d'espèce sensible. Jamais présenté
+  comme Licence Ouverte 2.0. Code : AGPL-3.0.
 
 ## Conventions UI
 
 - **Pagination serveur obligatoire** pour toute longue liste (communes, zonages,
-  espèces/habitats renvoyés, aires protégées…) : le serveur renvoie une page
+  espèces/habitats, aires protégées…) : le serveur renvoie une page
   limitée (paginator Laravel, `preserveScroll`/`only` Inertia pour les
   rechargements), jamais la liste complète rendue côté client. Pas d'infinite
   scroll non borné : l'utilisateur ne doit pas devoir scroller une liste
@@ -34,21 +41,24 @@ puis exportées en SQL portable + GeoJSON statiques.
 
 ## Vérifications (économie de temps)
 
-- **Ne jamais relancer toute la suite** pour un changement ciblé : n'exécuter
-  que les tests et vérifications des **fichiers touchés**.
+- **Toujours se limiter aux fichiers touchés**, même avant un commit/push :
+  n'exécuter que les tests et vérifications des **fichiers modifiés**.
   - Test d'un seul contrôleur/service : `php artisan test tests/Feature/<Fiche…>Test.php`
     (encore plus fin : `--filter <méthode>`).
   - Style : `./vendor/bin/pint <fichiers touchés>` (jamais sur tout le dépôt).
   - Analyse : `./vendor/bin/phpstan analyse <fichiers touchés> --no-progress`.
-  - La suite complète (`php artisan test` sans filtre + Pint global) ne se
-    lance qu'avant une mise en prod ou un commit de bout en bout, et les
-    erreurs PHPStan « memory limit » ne sont pas des échecs : relancer avec
-    `--memory-limit=1G` si besoin.
+  - La suite complète (`php artisan test` sans filtre + `pint --test` global)
+    ne se lance **qu'avant une mise en prod**, pas à chaque commit : la CI
+    GitHub Actions (`.github/workflows/ci.yml`) la joue de toute façon à
+    chaque push (PHPUnit complet, tests JS, Pint global, PHPStan complet).
+  - Les erreurs PHPStan « memory limit » ne sont pas des échecs : relancer
+    avec `--memory-limit=1G`.
 
 ## Layout
 
-- `app/Services/InpnImportService.php` — imports ZNIEFF (shapefile), Natura 2000
-  (shapefile), aires protégées (GeoPackage, encodage cp1252).
+- `app/Services/InpnImportService.php` — imports ZNIEFF (shapefile + REF_ESPECE.csv),
+  Natura 2000 (shapefile + FSD : espèces `species.csv.csv`, habitats `habit1.csv.csv`,
+  référentiels `dhff_*`/`code_do_oiseaux`), aires protégées (GeoPackage, cp1252).
 - `app/Services/SpatialService.php` — staging PostGIS, `ST_Transform(…, 2154)`,
   `ST_MakeValid`, croisements et surfaces : **local uniquement**.
 - `app/Services/CommunesService.php` — référentiel communal (AdminExpress COG),
@@ -64,12 +74,17 @@ puis exportées en SQL portable + GeoJSON statiques.
   (pas d'extension), WKT MULTIPOLYGON trous/îlots — testé unitairement.
 - `app/Support/GeojsonStream.php` — parcours en flux du GeoJSON AdminExpress
   (43 Mo), repris de l'ABC.
+- `app/Support/Especes.php` — lecture des tables `znieff_especes` /
+  `natura_especes` / `natura_habitats` pour les fiches (paginée serveur) :
+  **filtre absolu `confidentielle = false`** posé ici, côté requête.
 - `config/portail.php` — config métier : répertoires INPN, versions de
   référentiels affichées en pied de page, simplifications, types d'aires
   protégées, URLs INPN, seuil « point » (< 1 ha).
 - `resources/js/map/constants.js` — palette/cartes (Plan IGN v2 WMTS libres
   **sans clé**), testés par `tests/js/carte.test.mjs`.
-- `database/migrations/` — 9 migrations. Aucune colonne géométrique.
+- `database/migrations/` — 12 migrations. Aucune colonne géométrique (les tables
+  d'espèces/habitats `znieff_especes`, `natura_especes`, `natura_habitats` sont
+  purement attributaires).
 
 ## Stack & versions
 
@@ -128,6 +143,14 @@ docker compose exec app php artisan portail:export-sql     # storage/app/portail
 
 ## Pièges connus (gains de la vieille équipe)
 
+- **Espèces confidentielles** : le flag `confidentielle` (ZNIEFF : `FG_CONF=true`
+  ou `FG_ESP=C` dans REF_ESPECE.csv) est importé en base mais ne doit **jamais**
+  sortir : toutes les lectures passent par `App\Support\Especes` qui pose
+  `where('confidentielle', false)` — listes comme compteurs. Ne jamais ajouter
+  une requête brute sur `znieff_especes` ailleurs.
+- `REF_ESPECE.csv` référence les zones par `ID_ZNIEFF` (numérique) **et**
+  `NM_SFFZN` (national) : on filtre directement sur `NM_SFFZN` = clé de
+  `zonages.id`.
 - **Composer lock** : plate-forme épinglée `php 8.3.36`
   (`config.platform.php`) — l'image `composer:2` tourne en PHP 8.4. Toujours
   régénérer le lock dans l'image app.

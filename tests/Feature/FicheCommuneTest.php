@@ -42,8 +42,13 @@ class FicheCommuneTest extends TestCase
             ->where('zonages.0.id', '230009093')
             ->where('zonages.0.part_commune', '49,5 %')
             ->where('zonages.0.badge', 'znieff2')
+            // compteur d'espèces déterminantes (hors confidentielles) par zonage
+            ->where('zonages.0.nb_especes', 2)
             ->where('zonages.1.id', '230030467')
+            ->where('zonages.1.nb_especes', 1)
             ->where('natura.0.code', 'FR2300128')
+            ->where('natura.0.nb_especes', 2)
+            ->where('natura.0.nb_habitats', 2)
             ->where('aires.0.id', 'FR3800583')
             // voisines : Acquigny à 4 200 m
             ->has('voisines', 1)

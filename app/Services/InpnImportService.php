@@ -32,6 +32,9 @@ class InpnImportService
 {
     private const TERRITOIRES = ['GLP', 'GUF', 'MYT', 'REU', 'SPM', 'NCL', 'MTQ', 'MAF', 'PYF', 'TADL', 'SUBANT', 'BLM', 'CLI', 'EPA'];
 
+    /** Taille des lots d'insertion (REF_ESPECE.csv fait ~2,1 M de lignes). */
+    private const BATCH = 500;
+
     public function __construct(
         private readonly CsvReaderService $csv,
         private readonly SpatialService $spatial,
@@ -58,9 +61,10 @@ class InpnImportService
             Log::warning('Import ZNIEFF sans PostGIS : attributs du référentiel seuls (ni surfaces ni GeoJSON).');
             $origines = []; // pas de géométries lues
             $this->ecrireZonages($attrs, array_keys($attrs), $origines);
+            $nbEsp = $this->importZnieffEspeces($dir, array_keys($attrs), $tick);
             $this->registrer('znieff', count($attrs));
 
-            return ['zones' => count($attrs), 'geometries' => 0, 'intersections' => 0, 'spatial' => false];
+            return ['zones' => count($attrs), 'especes' => $nbEsp, 'geometries' => 0, 'intersections' => 0, 'spatial' => false];
         }
 
         $this->exigerReferentielCommunal();
@@ -71,6 +75,7 @@ class InpnImportService
 
         $ids = $this->perimetre('portail_tmp_znieff', $dept, array_keys($attrs));
         $this->ecrireZonages($attrs, $ids, $origines);
+        $nbEsp = $this->importZnieffEspeces($dir, $ids, $tick);
         $croisement = $this->spatial->croiser('zonage_communes', 'zonage_id', 'portail_tmp_znieff');
         $this->spatial->reporterMesures('zonages', 'id', 'portail_tmp_znieff');
         $this->registrer('znieff', count($ids));
@@ -90,12 +95,86 @@ class InpnImportService
 
         return [
             'zones' => count($ids),
+            'especes' => $nbEsp,
             'geometries' => $nbGeom,
             'intersections' => $croisement['nb'],
             'communes_manquantes' => $croisement['communes_manquantes'],
             'geojson' => $fichiersGeojson,
             'spatial' => true,
         ];
+    }
+
+    /**
+     * Espèces citées par les ZNIEFF du périmètre (REF_ESPECE.csv, ~2,1 M de
+     * lignes France entière) : lecture en flux, insertion par lots.
+     * REF_ESPECE.csv porte le NM_SFFZN (clé de zonages.id) — filtre direct.
+     *
+     * Une espèce CONFIDENTIELLE reste importée avec son flag : elle ne doit
+     * JAMAIS être affichée ni comptée (filtre absolu posé côté lecture dans
+     * App\Support\Especes, cf. AGENTS.md).
+     *
+     * @param  array<int, string>  $idsPerimetre  NM_SFFZN écrits dans zonages
+     * @return int nombre de lignes insérées
+     */
+    private function importZnieffEspeces(string $dir, array $idsPerimetre, ?callable $tick): int
+    {
+        $fichier = $dir.'/ZNIEFF/REF_ESPECE.csv';
+        DB::table('znieff_especes')->delete(); // rechargement intégral (idempotent)
+        if (! is_file($fichier)) {
+            Log::warning('REF_ESPECE.csv absent : aucune espèce ZNIEFF importée.', ['fichier' => $fichier]);
+
+            return 0;
+        }
+
+        $perimetre = array_flip($idsPerimetre);
+        // Repli : si NM_SFFZN est vide dans REF_ESPECE, retomber sur le
+        // mapping ID_ZNIEFF (numérique) → NM_SFFZN lu dans REF_ZNIEFF.csv.
+        $versNational = [];
+        foreach ($this->csv->iterate($dir.'/ZNIEFF/REF_ZNIEFF.csv') as $rec) {
+            $num = trim((string) ($rec['id_znieff'] ?? ''));
+            $nat = trim((string) ($rec['nm_sffzn'] ?? ''));
+            if ($num !== '' && $nat !== '') {
+                $versNational[$num] = $nat;
+            }
+        }
+
+        $count = 0;
+        $chunk = [];
+        foreach ($this->csv->iterate($fichier) as $rec) {
+            if (($rec['fg_supp'] ?? '') === 'true') {
+                continue;
+            }
+            $nat = trim((string) ($rec['nm_sffzn'] ?? ''));
+            if ($nat === '') {
+                $nat = $versNational[trim((string) ($rec['id_znieff'] ?? ''))] ?? '';
+            }
+            if ($nat === '' || ! isset($perimetre[$nat])) {
+                continue;
+            }
+            $chunk[] = [
+                'zonage_id' => $nat,
+                'cd_ref' => (int) ($rec['cd_ref'] ?? 0),
+                'nom_cite' => (string) ($rec['nom_cite'] ?? ''),
+                'groupe_taxo' => $this->nonVide($rec['groupe_taxo'] ?? null),
+                // Dictionnaire INPN (FG_ESP) : A autre espèce ; E autre espèce
+                // à enjeux ; D déterminante ; C confidentielle.
+                'determinante' => ($rec['fg_esp'] ?? '') === 'D',
+                'confidentielle' => ($rec['fg_conf'] ?? '') === 'true' || ($rec['fg_esp'] ?? '') === 'C',
+            ];
+            $count++;
+            if (count($chunk) >= self::BATCH) {
+                DB::table('znieff_especes')->insert($chunk);
+                $chunk = [];
+                if ($tick !== null) {
+                    $tick(self::BATCH);
+                }
+            }
+        }
+        if ($chunk !== []) {
+            DB::table('znieff_especes')->insert($chunk);
+        }
+
+        return $count;
     }
 
     /**
@@ -217,9 +296,11 @@ class InpnImportService
         if (! $this->spatial->disponible()) {
             Log::warning('Import Natura sans PostGIS : attributs seuls (ni surfaces ni GeoJSON).');
             $this->ecrireNaturaSites($infos, array_keys($infos));
+            $nbEsp = $this->importNaturaEspeces($base, array_keys($infos), $tick);
+            $nbHab = $this->importNaturaHabitats($base, array_keys($infos), $tick);
             $this->registrer('natura', count($infos));
 
-            return ['sites' => count($infos), 'geometries' => 0, 'intersections' => 0, 'spatial' => false];
+            return ['sites' => count($infos), 'especes' => $nbEsp, 'habitats' => $nbHab, 'geometries' => 0, 'intersections' => 0, 'spatial' => false];
         }
 
         $this->exigerReferentielCommunal();
@@ -230,6 +311,8 @@ class InpnImportService
 
         $ids = $this->perimetre('portail_tmp_natura', $dept, array_keys($infos));
         $this->ecrireNaturaSites($infos, $ids);
+        $nbEsp = $this->importNaturaEspeces($base, $ids, $tick);
+        $nbHab = $this->importNaturaHabitats($base, $ids, $tick);
         $croisement = $this->spatial->croiser('natura_communes', 'site_code', 'portail_tmp_natura');
         $this->spatial->reporterMesures('natura_sites', 'code', 'portail_tmp_natura');
         $this->registrer('natura', count($ids));
@@ -248,12 +331,257 @@ class InpnImportService
 
         return [
             'sites' => count($ids),
+            'especes' => $nbEsp,
+            'habitats' => $nbHab,
             'geometries' => $nbGeom,
             'intersections' => $croisement['nb'],
             'communes_manquantes' => $croisement['communes_manquantes'],
             'geojson' => $fichiersGeojson,
             'spatial' => true,
         ];
+    }
+
+    /**
+     * Espèces des formulaires standards Natura 2000 (species.csv.csv),
+     * enrichies des référentiels de directives (dhff_especes : noms, annexe
+     * II, prioritaire ; code_do_oiseaux : annexe I). Le FSD compte une ligne
+     * par statut biologique (r/c/w/p) : on dédoublonne par (site, espèce) en
+     * fusionnant les statuts dans `presences` (ex. « c,r,w »).
+     *
+     * @param  array<int, string>  $idsPerimetre  codes de sites écrits dans natura_sites
+     * @return int nombre de lignes insérées
+     */
+    private function importNaturaEspeces(string $base, array $idsPerimetre, ?callable $tick): int
+    {
+        $file = $base.'/species.csv.csv';
+        DB::table('natura_especes')->delete(); // rechargement intégral (idempotent)
+        if (! is_file($file)) {
+            Log::warning('species.csv.csv absent : aucune espèce Natura 2000 importée.', ['fichier' => $file]);
+
+            return 0;
+        }
+
+        $perimetre = array_flip(array_map('strval', $idsPerimetre));
+        $referentiel = $this->dhffEspeces($base) + $this->oiseauxEspeces($base);
+
+        $count = 0;
+        $chunk = [];
+        $uniques = [];
+        foreach ($this->csv->iterate($file) as $rec) {
+            if (! empty($rec['date_supp'] ?? '')) {
+                continue;
+            }
+            $sitecode = strtoupper(trim((string) ($rec['sitecode'] ?? '')));
+            if (! isset($perimetre[$sitecode])) {
+                continue;
+            }
+            $codeN2000 = trim((string) ($rec['code_n2000'] ?? ''));
+            $cdRef = $this->intOuNull($rec['cd_ref'] ?? null);
+            $key = $sitecode.'|'.$codeN2000.'|'.(string) $cdRef;
+            $statut = $this->nonVide($rec['type'] ?? null);
+            if (isset($uniques[$key])) {
+                if ($statut !== null && ! in_array($statut, $uniques[$key]['statuts'], true)) {
+                    $uniques[$key]['statuts'][] = $statut;
+                }
+
+                continue;
+            }
+            $uniques[$key] = [
+                'row' => [
+                    'sitecode' => $sitecode,
+                    'code_n2000' => $codeN2000,
+                    'cd_ref' => $cdRef,
+                    'taxgroup' => $this->nonVide($rec['taxgroup'] ?? null),
+                    'annexe_ii' => $this->nonVide($rec['annexe_ii'] ?? null),
+                ],
+                'statuts' => $statut !== null ? [$statut] : [],
+            ];
+        }
+
+        foreach ($uniques as $u) {
+            $ref = $referentiel[$u['row']['code_n2000']] ?? [];
+            $annexeIi = $u['row']['annexe_ii'] ?? $ref['annexe_ii'] ?? '';
+            $statuts = $u['statuts'];
+            sort($statuts);
+            $chunk[] = [
+                'site_code' => $u['row']['sitecode'],
+                'code_n2000' => $u['row']['code_n2000'],
+                'cd_ref' => $u['row']['cd_ref'],
+                'nom_scientifique' => $ref['nom'] ?? null,
+                'nom_vernaculaire' => $ref['vern'] ?? null,
+                'taxgroup' => $u['row']['taxgroup'],
+                'annexe_ii' => in_array($annexeIi, ['Y', 'true'], true),
+                'annexe_1' => ($ref['annexe_1'] ?? '') === 'Y',
+                'prioritaire' => ($ref['prioritaire'] ?? '') === 'true',
+                'presences' => $statuts !== [] ? implode(',', $statuts) : null,
+            ];
+            $count++;
+            if (count($chunk) >= self::BATCH) {
+                DB::table('natura_especes')->insert($chunk);
+                $chunk = [];
+                if ($tick !== null) {
+                    $tick(self::BATCH);
+                }
+            }
+        }
+        if ($chunk !== []) {
+            DB::table('natura_especes')->insert($chunk);
+        }
+
+        return $count;
+    }
+
+    /**
+     * Habitats d'intérêt communautaire des sites (FSD habit1.csv.csv),
+     * enrichis du référentiel dhff_habitats (nom français, prioritaire).
+     * Rares doublons INPN dédoublonnés (première occurrence).
+     *
+     * @param  array<int, string>  $idsPerimetre
+     * @return int nombre de lignes insérées
+     */
+    private function importNaturaHabitats(string $base, array $idsPerimetre, ?callable $tick): int
+    {
+        $file = $base.'/habit1.csv.csv';
+        DB::table('natura_habitats')->delete();
+        if (! is_file($file)) {
+            Log::warning('habit1.csv.csv absent : aucun habitat Natura 2000 importé.', ['fichier' => $file]);
+
+            return 0;
+        }
+
+        $perimetre = array_flip(array_map('strval', $idsPerimetre));
+        $referentielHabitats = $this->dhffHabitats($base);
+
+        $count = 0;
+        $chunk = [];
+        $seen = [];
+        foreach ($this->csv->iterate($file) as $rec) {
+            if (! empty($rec['date_supp'] ?? '')) {
+                continue;
+            }
+            $sitecode = strtoupper(trim((string) ($rec['sitecode'] ?? '')));
+            if (! isset($perimetre[$sitecode])) {
+                continue;
+            }
+            $key = $sitecode.'|'.($rec['cd_ue'] ?? '').'|'.($rec['cd_hab'] ?? '');
+            if (isset($seen[$key])) {
+                continue;
+            }
+            $seen[$key] = true;
+            $refHab = $referentielHabitats[$rec['cd_ue'] ?? ''] ?? [];
+            $chunk[] = [
+                'site_code' => $sitecode,
+                'cd_ue' => (string) ($rec['cd_ue'] ?? ''),
+                'nom' => $refHab['nom'] ?? null,
+                'prioritaire' => $refHab['prioritaire'] ?? false,
+                'cd_hab' => $this->nonVide($rec['cd_hab'] ?? null),
+                'cover' => $this->decimal($rec['cover'] ?? null),
+                'area' => $this->decimal($rec['area'] ?? null),
+                'representativite' => $this->char1($rec['represent'] ?? null),
+                // conserve = structure et fonctions (A/B/C) ; l'évaluation
+                // GLOBALE (champ « global ») est distincte.
+                'conservation' => $this->char1($rec['conserve'] ?? null),
+                'evaluation_globale' => $this->char1($rec['global'] ?? null),
+            ];
+            $count++;
+            if (count($chunk) >= self::BATCH) {
+                DB::table('natura_habitats')->insert($chunk);
+                $chunk = [];
+                if ($tick !== null) {
+                    $tick(self::BATCH);
+                }
+            }
+        }
+        if ($chunk !== []) {
+            DB::table('natura_habitats')->insert($chunk);
+        }
+
+        return $count;
+    }
+
+    /**
+     * Référentiel de la directive Habitats (dhff_especes.csv.csv) :
+     * code N2000 → noms, annexe II, prioritaire.
+     *
+     * @return array<string, array{nom: string, vern: string, annexe_ii: string, prioritaire: string}>
+     */
+    private function dhffEspeces(string $base): array
+    {
+        $file = $base.'/dhff_especes.csv.csv';
+        if (! is_file($file)) {
+            return []; // absent des extractions plus anciennes
+        }
+        $ref = [];
+        foreach ($this->csv->iterate($file) as $rec) {
+            $code = trim((string) ($rec['code_n2000'] ?? ''));
+            if ($code === '') {
+                continue;
+            }
+            $ref[$code] = [
+                'nom' => (string) ($rec['lb_nom'] ?? ''),
+                'vern' => (string) ($rec['nom_vern'] ?? ''),
+                'annexe_ii' => (string) ($rec['annexe_ii'] ?? ''),
+                'prioritaire' => (string) ($rec['prioritaire'] ?? ''),
+            ];
+        }
+
+        return $ref;
+    }
+
+    /**
+     * Référentiel de la directive Oiseaux (code_do_oiseaux.csv.csv) : les
+     * codes « A### » des formulaires (ZPS) n'existent pas dans le
+     * référentiel Habitats.
+     *
+     * @return array<string, array{nom: string, vern: string, annexe_1: string}>
+     */
+    private function oiseauxEspeces(string $base): array
+    {
+        $file = $base.'/code_do_oiseaux.csv.csv';
+        if (! is_file($file)) {
+            return [];
+        }
+        $ref = [];
+        foreach ($this->csv->iterate($file) as $rec) {
+            $code = trim((string) ($rec['code_n2000'] ?? ''));
+            if ($code === '') {
+                continue;
+            }
+            $ref[$code] = [
+                'nom' => (string) ($rec['nom_n2000'] ?? $rec['lb_nom'] ?? ''),
+                'vern' => (string) ($rec['nom_vern'] ?? ''),
+                'annexe_1' => (string) ($rec['annexe_i'] ?? ''),
+            ];
+        }
+
+        return $ref;
+    }
+
+    /**
+     * Référentiel de la directive Habitats (dhff_habitats.csv.csv) : code
+     * EUR → nom français (annexe I) et caractère prioritaire.
+     *
+     * @return array<string, array{nom: string, prioritaire: bool}>
+     */
+    private function dhffHabitats(string $base): array
+    {
+        $file = $base.'/dhff_habitats.csv.csv';
+        if (! is_file($file)) {
+            return [];
+        }
+        $ref = [];
+        foreach ($this->csv->iterate($file) as $rec) {
+            $code = trim((string) ($rec['cd_ue'] ?? ''));
+            if ($code === '' || isset($ref[$code])) {
+                continue;
+            }
+            $ref[$code] = [
+                'nom' => (string) ($rec['lb_habdh_fr'] ?? $rec['hdname'] ?? ''),
+                'prioritaire' => ($rec['prioritaire'] ?? '') === 'true',
+            ];
+        }
+
+        return $ref;
     }
 
     /**
@@ -777,6 +1105,21 @@ class InpnImportService
         $v = trim((string) $value);
 
         return $v === '' ? null : $v;
+    }
+
+    private function intOuNull(mixed $value): ?int
+    {
+        $v = trim((string) $value);
+
+        return $v !== '' && is_numeric($v) ? (int) $v : null;
+    }
+
+    /** Notation FSD A-D (representativite, conservation, globale) → 1 caractère. */
+    private function char1(?string $value): ?string
+    {
+        $v = strtoupper(substr(trim((string) $value), 0, 1));
+
+        return in_array($v, ['A', 'B', 'C', 'D'], true) ? $v : null;
     }
 
     private function decimal(?string $value): ?float

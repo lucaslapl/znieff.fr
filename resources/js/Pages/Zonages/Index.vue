@@ -35,7 +35,8 @@ defineProps({
         <p class="lead">
             Recherche par identifiant, par nom ou par département. Chaque fiche affiche le
             périmètre, la table de croisement des communes (surfaces et parts précalculées)
-            et renvoie vers la fiche INPN — les espèces déterminantes n'y sont jamais rediffusées.
+            et les espèces déterminantes (hors espèces confidentielles) — la fiche INPN
+            reste la référence pour le descriptif complet.
         </p>
 
         <ListeFiltres

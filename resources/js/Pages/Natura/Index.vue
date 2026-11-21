@@ -33,8 +33,8 @@ defineProps({
         <h1>{{ deptNom ? `Sites Natura 2000 — ${deptNom} (${filtres.dept})` : 'Sites Natura 2000' }}</h1>
         <p class="lead">
             Sites d'importance communautaire (SIC) et zones de protection spéciale (ZPS),
-            reliés aux communes qui les portent. Les espèces et habitats d'intérêt
-            communautaire restent sur la fiche INPN, jamais rediffusés.
+            reliés aux communes qui les portent. Chaque fiche liste les habitats et les
+            espèces d'intérêt communautaire du formulaire standard INPN.
         </p>
 
         <ListeFiltres

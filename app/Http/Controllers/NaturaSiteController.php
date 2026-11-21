@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\NaturaSite;
 use App\Support\Chapeaux;
 use App\Support\Croisements;
+use App\Support\Especes;
 use App\Support\Exports;
 use App\Support\Recherche;
 use Illuminate\Database\Eloquent\Builder as EloquentBuilder;
@@ -65,8 +66,9 @@ class NaturaSiteController extends Controller
 
     /**
      * Fiche d'un site Natura 2000 (SIC/ZSC ou ZPS) — code européen FR.
-     * Espèces et habitats d'intérêt communautaire : renvoi INPN, jamais
-     * rediffusés.
+     * Habitats et espèces d'intérêt communautaire du formulaire standard,
+     * listés tels quels (paginés serveur) — crédit INPN/MNHN ; le DOCOB
+     * reste sur la fiche INPN.
      */
     public function show(Request $request, string $code): Response
     {
@@ -76,6 +78,12 @@ class NaturaSiteController extends Controller
         // Liste des communes paginée côté serveur (convention AGENTS.md).
         $page = max(1, (int) $request->query('page', '1'));
         $communes = Croisements::communesNaturaPagine($site->code, $page, self::PAR_PAGE);
+        // Habitats et espèces du FSD, paginés eux aussi (?page_habitats=,
+        // ?page_especes=) : la liste complète n'est jamais envoyée au client.
+        $pageHabitats = max(1, (int) $request->query('page_habitats', '1'));
+        $pageEspeces = max(1, (int) $request->query('page_especes', '1'));
+        $habitats = Especes::habitatsNaturaPagine($site->code, $pageHabitats, self::PAR_PAGE);
+        $especes = Especes::especesNaturaPagine($site->code, $pageEspeces, self::PAR_PAGE);
 
         $chapeau = Chapeaux::natura([
             'code' => $site->code,
@@ -114,6 +122,12 @@ class NaturaSiteController extends Controller
             ], $communes['items']),
             'nbCommunes' => $communes['total'],
             'pagination' => $this->paginationFiche('natura.show', ['code' => $site->code], $communes['page'], self::PAR_PAGE, $communes['total']),
+            'habitats' => $habitats['items'],
+            'nbHabitats' => $habitats['total'],
+            'paginationHabitats' => $this->paginationFiche('natura.show', ['code' => $site->code], $habitats['page'], self::PAR_PAGE, $habitats['total'], 'page_habitats'),
+            'especes' => $especes['items'],
+            'nbEspeces' => $especes['total'],
+            'paginationEspeces' => $this->paginationFiche('natura.show', ['code' => $site->code], $especes['page'], self::PAR_PAGE, $especes['total'], 'page_especes'),
         ]);
     }
 

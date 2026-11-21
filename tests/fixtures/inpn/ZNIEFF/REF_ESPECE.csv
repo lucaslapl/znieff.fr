@@ -1,0 +1,7 @@
+"id_espece";"id_znieff";"nm_sffzn";"cd_ref";"cd_nom";"fg_conf";"fg_esp";"st_vsd";"fg_supp";"date_crea";"date_supp";"date_modif";"groupe_taxo";"nom_cite";"id_sinp"
+"652892";"1137";"230009093";"3161";"3161";"false";"D";"3";"false";"2012-09-14";;"2025-04-03";"Oiseaux";"<i>Pluvialis apricaria</i> (Linnaeus, 1758)";"x1"
+"652893";"1137";"230009093";"1308";"1308";"false";"D";"3";"false";"2012-09-14";;"2025-04-03";"Mammifères";"<i>Miniopterus schreibersii</i> (Kuhl, 1817)";"x2"
+"652894";"1137";"230009093";"999001";"999001";"true";"C";"3";"false";"2012-09-14";;"2025-04-03";"Mammifères";"<i>Rhinolophus ferrumequinum</i>";"x3"
+"652895";"1137";"230009093";"60612";"60612";"false";"A";"3";"false";"2012-09-14";;"2025-04-03";"Oiseaux";"<i>Picus canus</i>";"x4"
+"652896";"2804";"230030467";"60400";"60400";"false";"D";"3";"false";"2015-01-01";;"2025-04-03";"Amphibiens";"<i>Triturus cristatus</i> (Laurenti, 1768)";"x5"
+"652897";"9999";"230099999";"3161";"3161";"false";"D";"3";"true";"2012-09-14";;"2025-04-03";"Oiseaux";"<i>Pluvialis apricaria</i>";"x6"

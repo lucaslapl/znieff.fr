@@ -1,5 +1,10 @@
 <script setup>
-import { Head, Link } from '@inertiajs/vue3';
+import { Head, Link, usePage } from '@inertiajs/vue3';
+import { computed } from 'vue';
+// route() dans un <script setup> : import explicite depuis le package Ziggy
+// (ZiggyVue n'injecte route() que dans les templates) + config passée depuis
+// la prop partagée « ziggy » — sinon « route is not defined » et crash SSR.
+import { route as ziggyRoute } from '../../../../vendor/tightenco/ziggy';
 import Layout from '../../Components/Layout.vue';
 import BadgeFamille from '../../Components/BadgeFamille.vue';
 import ListePager from '../../Components/ListePager.vue';
@@ -14,9 +19,29 @@ const props = defineProps({
     communes: { type: Array, required: true },
     nbCommunes: { type: Number, required: true },
     pagination: { type: Object, required: true }, // pagination serveur de la liste des communes
+    especes: { type: Array, required: true }, // espèces déterminantes (hors confidentielles)
+    nbEspeces: { type: Number, required: true }, // total du filtre courant (groupe actif ou tous)
+    nbEspecesTotal: { type: Number, required: true },
+    groupes: { type: Array, required: true }, // sous-onglets : [{ groupe, n }]
+    groupeActif: { type: String, default: null }, // ?groupe=Oiseaux
+    paginationEspeces: { type: Object, required: true }, // pagination serveur des espèces (?page_especes=)
 });
 
 const type = props.zonage.famille === 'z1' ? 'ZNIEFF I' : 'ZNIEFF II';
+
+// Version du référentiel INPN affichée avec l'attribution (prop partagée site.referentiels).
+const page = usePage();
+const versionZnieff = computed(() => page.props.site?.referentiels?.znieff?.version ?? '');
+
+// Sous-onglets par groupe taxonomique : rechargement partiel Inertia, le
+// filtre (?groupe=) et la pagination (?page_especes=) restent côté serveur.
+const onlyEspeces = ['especes', 'nbEspeces', 'nbEspecesTotal', 'groupes', 'groupeActif', 'paginationEspeces'];
+const urlGroupe = (g) => ziggyRoute(
+    'znieff.show',
+    { id: props.zonage.id, ...(g ? { groupe: g } : {}), page_especes: 1 },
+    true,
+    page.props.ziggy,
+);
 </script>
 
 <template>
@@ -93,16 +118,66 @@ const type = props.zonage.famille === 'z1' ? 'ZNIEFF I' : 'ZNIEFF II';
             </p>
         </div>
 
-        <h2>Espèces déterminantes, habitats, facteurs d'évolution</h2>
+        <h2 id="especes">Espèces déterminantes</h2>
         <p class="lead">
-            Le portail ne rediffuse pas les données naturalistes des ZNIEFF : ces informations sont
-            mises à jour par les scientifiques du réseau et restent consultables sur la
-            <a :href="zonage.url_inpn" target="_blank" rel="noopener">fiche INPN de la zone ↗</a>.
+            {{ nbEspecesTotal }} espèce{{ nbEspecesTotal > 1 ? 's' : '' }} déterminante{{ nbEspecesTotal > 1 ? 's' : '' }}
+            citée{{ nbEspecesTotal > 1 ? 's' : '' }} pour cette zone dans le référentiel INPN
+            (hors espèces confidentielles).
+        </p>
+        <div v-if="especes.length > 0">
+            <div v-if="groupes.length > 1" class="onglets" role="tablist" aria-label="Groupes taxonomiques">
+                <Link
+                    :href="urlGroupe(null)"
+                    class="onglet"
+                    :class="{ actif: groupeActif === null }"
+                    :only="onlyEspeces"
+                    preserve-scroll
+                    role="tab"
+                    :aria-selected="groupeActif === null"
+                >Tous ({{ nbEspecesTotal }})</Link>
+                <Link
+                    v-for="g in groupes"
+                    :key="g.groupe"
+                    :href="urlGroupe(g.groupe)"
+                    class="onglet"
+                    :class="{ actif: groupeActif === g.groupe }"
+                    :only="onlyEspeces"
+                    preserve-scroll
+                    role="tab"
+                    :aria-selected="groupeActif === g.groupe"
+                >{{ g.groupe }} ({{ g.n }})</Link>
+            </div>
+            <div class="plate">
+                <table>
+                    <thead>
+                        <tr><th v-if="groupeActif === null">Groupe</th><th>Espèce citée</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr v-for="e in especes" :key="e.cd_ref + '|' + e.nom">
+                            <td v-if="groupeActif === null">{{ e.groupe }}</td>
+                            <td><em>{{ e.nom }}</em></td>
+                        </tr>
+                    </tbody>
+                </table>
+                <ListePager :pagination="paginationEspeces" mot="espèces" :only="onlyEspeces" />
+                <p class="hint">
+                    Source : inventaire ZNIEFF INPN · MNHN<template v-if="versionZnieff"> — {{ versionZnieff }}</template>.
+                    Noms cités tels quels dans le référentiel, hors espèces confidentielles. Habitats,
+                    facteurs d'évolution et descriptif complet :
+                    <a :href="zonage.url_inpn" target="_blank" rel="noopener">fiche INPN de la zone ↗</a>.
+                </p>
+            </div>
+        </div>
+        <p v-else class="lead">
+            Aucune espèce déterminante (hors espèces confidentielles) n'est citée pour cette zone
+            dans le référentiel INPN.
         </p>
 
         <p class="attribution">
-            Données ZNIEFF : INPN · MNHN (conditions de réutilisation affichées sur la page
-            « Données &amp; méthodologie »). Aucune donnée naturaliste rediffusée ici.
+            Données ZNIEFF : INPN · MNHN — réutilisées sous les
+            <a href="https://inpn.mnhn.fr/legal" target="_blank" rel="noopener">licences de l'INPN ↗</a>,
+            jamais présentées comme Licence Ouverte 2.0. Espèces déterminantes affichées hors espèces
+            confidentielles (conditions affichées sur la page « Données &amp; méthodologie »).
         </p>
     </Layout>
 </template>

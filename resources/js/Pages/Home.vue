@@ -62,7 +62,7 @@ const nombre = (n) => n.toLocaleString('fr-FR');
             </div>
             <div class="card">
                 <Link class="stretched" :href="route('natura.index')">Par site Natura 2000 →</Link>
-                <p>Chaque site SIC / ZPS avec ses communes et ses superficies (les espèces et habitats restent sur la fiche INPN, jamais rediffusés).</p>
+                <p>Chaque site SIC / ZPS avec ses communes, ses superficies, ses habitats et ses espèces des directives (fiche INPN en complément).</p>
             </div>
             <div class="card">
                 <Link class="stretched" :href="route('ap.index')">Par aire protégée →</Link>

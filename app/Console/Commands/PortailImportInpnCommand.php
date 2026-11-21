@@ -65,13 +65,13 @@ class PortailImportInpnCommand extends Command
         if (in_array($source, ['znieff', 'all'], true)) {
             $this->info('ZNIEFF…');
             $retour = $inpn->importZnieff($dept, $progression, $avecGeojson);
-            $this->afficher('znieff', $retour, ['zones', 'geometries', 'intersections']);
+            $this->afficher('znieff', $retour, ['zones', 'especes', 'geometries', 'intersections']);
         }
 
         if (in_array($source, ['natura', 'all'], true)) {
             $this->info('Natura 2000…');
             $retour = $inpn->importNatura($dept, $progression, $avecGeojson);
-            $this->afficher('natura', $retour, ['sites', 'geometries', 'intersections']);
+            $this->afficher('natura', $retour, ['sites', 'especes', 'habitats', 'geometries', 'intersections']);
         }
 
         if (in_array($source, ['aires', 'all'], true)) {

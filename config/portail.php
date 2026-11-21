@@ -32,7 +32,8 @@ return [
 
     /*
     |----------------------------------------------------------------------
-    | Fiches INPN (liens sortants, jamais de rediffusion)
+    | Fiches INPN (liens sortants complémentaires — les données naturalistes
+    | rediffusées le sont sous les licences de l'INPN, jamais LO 2.0)
     |----------------------------------------------------------------------
     */
     'urls' => [

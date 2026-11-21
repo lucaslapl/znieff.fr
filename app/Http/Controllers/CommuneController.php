@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Commune;
 use App\Support\Chapeaux;
 use App\Support\Croisements;
+use App\Support\Especes;
 use App\Support\Exports;
 use App\Support\Recherche;
 use Illuminate\Database\Eloquent\Builder as EloquentBuilder;
@@ -78,6 +79,10 @@ class CommuneController extends Controller
         $natura = Croisements::naturaCommune($commune->insee);
         $aires = Croisements::airesCommune($commune->insee);
         $voisines = $commune->voisinesAvecDistance();
+        // Compteurs d'espèces déterminantes (hors confidentielles — filtre
+        // absolu dans App\Support\Especes) par zonage, et espèces/habitats
+        // par site Natura 2000.
+        $compteurs = Especes::compteursCommune($commune->insee);
 
         $url = route('commune.show', $commune->slug);
         $meta = sprintf(
@@ -112,6 +117,7 @@ class CommuneController extends Controller
                 'superficie_ha' => Chapeaux::ha($z['superficie_ha']),
                 'surface_ha' => Chapeaux::ha($z['surface_ha']),
                 'part_commune' => Chapeaux::pct($z['part_commune']),
+                'nb_especes' => (int) ($compteurs['znieff'][$z['id']] ?? 0),
             ], $zonages),
             'natura' => array_map(fn (array $s) => [
                 'code' => $s['code'],
@@ -120,6 +126,8 @@ class CommuneController extends Controller
                 'superficie_ha' => Chapeaux::ha($s['superficie_ha']),
                 'surface_ha' => Chapeaux::ha($s['surface_ha']),
                 'part_commune' => Chapeaux::pct($s['part_commune']),
+                'nb_especes' => (int) ($compteurs['natura_especes'][$s['code']] ?? 0),
+                'nb_habitats' => (int) ($compteurs['natura_habitats'][$s['code']] ?? 0),
             ], $natura),
             'aires' => array_map(fn (array $a) => [
                 'id' => $a['id'],

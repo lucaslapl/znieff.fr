@@ -66,7 +66,7 @@ const abUrl = (slug) => `https://observatoire-abc.fr/commune/${slug}`;
         <div v-if="zonages.length > 0" class="plate">
             <table>
                 <thead>
-                    <tr><th>Type</th><th>Zonage</th><th>Superficie du zonage</th><th>Sur {{ commune.nom }}</th><th>Territoire communal couvert</th></tr>
+                    <tr><th>Type</th><th>Zonage</th><th>Superficie du zonage</th><th>Sur {{ commune.nom }}</th><th>Territoire communal couvert</th><th>Espèces déterminantes</th></tr>
                 </thead>
                 <tbody>
                     <tr v-for="z in zonages" :key="z.id">
@@ -78,6 +78,10 @@ const abUrl = (slug) => `https://observatoire-abc.fr/commune/${slug}`;
                         <td>{{ z.superficie_ha }}</td>
                         <td>{{ z.surface_ha }}</td>
                         <td><strong>{{ z.part_commune }}</strong></td>
+                        <td>
+                            <Link :href="route('znieff.show', z.id) + '#especes'">{{ z.nb_especes }} espèce{{ z.nb_especes > 1 ? 's' : '' }}</Link>
+                            <br /><small class="hint">hors confidentielles</small>
+                        </td>
                     </tr>
                 </tbody>
             </table>
@@ -92,7 +96,7 @@ const abUrl = (slug) => `https://observatoire-abc.fr/commune/${slug}`;
         <div v-if="natura.length > 0" class="plate">
             <table>
                 <thead>
-                    <tr><th>Type</th><th>Site</th><th>Superficie du site</th><th>Sur {{ commune.nom }}</th><th>Territoire communal couvert</th></tr>
+                    <tr><th>Type</th><th>Site</th><th>Superficie du site</th><th>Sur {{ commune.nom }}</th><th>Territoire communal couvert</th><th>Espèces · Habitats</th></tr>
                 </thead>
                 <tbody>
                     <tr v-for="s in natura" :key="s.code">
@@ -104,6 +108,10 @@ const abUrl = (slug) => `https://observatoire-abc.fr/commune/${slug}`;
                         <td>{{ s.superficie_ha }}</td>
                         <td>{{ s.surface_ha }}</td>
                         <td><strong>{{ s.part_commune }}</strong></td>
+                        <td>
+                            <Link :href="route('natura.show', s.code) + '#especes'">{{ s.nb_especes }} espèce{{ s.nb_especes > 1 ? 's' : '' }}</Link>
+                            · {{ s.nb_habitats }} habitat{{ s.nb_habitats > 1 ? 's' : '' }}
+                        </td>
                     </tr>
                 </tbody>
             </table>

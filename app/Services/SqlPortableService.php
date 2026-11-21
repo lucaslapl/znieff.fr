@@ -27,9 +27,12 @@ class SqlPortableService
         'referentiel_imports',
         'communes',
         'zonages',            // id_parent omis des INSERT (voir ci-dessous)
+        'znieff_especes',
         'commune_communes',
         'zonage_communes',
         'natura_sites',
+        'natura_especes',
+        'natura_habitats',
         'natura_communes',
         'aires_protegees',
         'ap_communes',
@@ -43,6 +46,9 @@ class SqlPortableService
     private array $booleens = [
         'communes' => ['has_abc'],
         'aires_protegees' => ['doc_gestion'],
+        'znieff_especes' => ['determinante', 'confidentielle'],
+        'natura_especes' => ['annexe_ii', 'annexe_1', 'prioritaire'],
+        'natura_habitats' => ['prioritaire'],
     ];
 
     /**

@@ -92,5 +92,45 @@ trait SemeFiches
         DB::table('ap_communes')->insert([
             ['ap_id' => 'FR3800583', 'insee' => '27375', 'surface_ha' => 10.20, 'part_zonage' => 81.60, 'part_commune' => 0.38],
         ]);
+
+        // Espèces citées par les ZNIEFF (REF_ESPECE.csv INPN) : déterminantes,
+        // non déterminante, et une CONFIDENTIELLE (jamais affichée ni comptée).
+        DB::table('znieff_especes')->insert([
+            ['zonage_id' => '230009093', 'cd_ref' => 3161, 'nom_cite' => '<i>Pluvialis apricaria</i> (Linnaeus, 1758)', 'groupe_taxo' => 'Oiseaux', 'determinante' => true, 'confidentielle' => false],
+            ['zonage_id' => '230009093', 'cd_ref' => 1308, 'nom_cite' => '<i>Miniopterus schreibersii</i> (Kuhl, 1817)', 'groupe_taxo' => 'Mammifères', 'determinante' => true, 'confidentielle' => false],
+            ['zonage_id' => '230009093', 'cd_ref' => 999001, 'nom_cite' => '<i>Rhinolophus ferrumequinum</i>', 'groupe_taxo' => 'Mammifères', 'determinante' => false, 'confidentielle' => true],
+            ['zonage_id' => '230009093', 'cd_ref' => 60612, 'nom_cite' => '<i>Picus canus</i>', 'groupe_taxo' => 'Oiseaux', 'determinante' => false, 'confidentielle' => false],
+            ['zonage_id' => '230030467', 'cd_ref' => 60400, 'nom_cite' => '<i>Triturus cristatus</i> (Laurenti, 1768)', 'groupe_taxo' => 'Amphibiens', 'determinante' => true, 'confidentielle' => false],
+        ]);
+
+        // Espèces et habitats du site Natura 2000 (formulaire standard INPN).
+        DB::table('natura_especes')->insert([
+            ['site_code' => 'FR2300128', 'code_n2000' => 'A136', 'cd_ref' => 3161, 'nom_scientifique' => 'Pluvialis apricaria', 'nom_vernaculaire' => 'Pluvier doré', 'taxgroup' => 'Oiseaux', 'annexe_ii' => false, 'annexe_1' => true, 'prioritaire' => false, 'presences' => 'r,w'],
+            ['site_code' => 'FR2300128', 'code_n2000' => '1308', 'cd_ref' => 1308, 'nom_scientifique' => 'Miniopterus schreibersii', 'nom_vernaculaire' => 'Minioptère de Schreibers', 'taxgroup' => 'Mammifères', 'annexe_ii' => true, 'annexe_1' => false, 'prioritaire' => false, 'presences' => null],
+        ]);
+        DB::table('natura_habitats')->insert([
+            ['site_code' => 'FR2300128', 'cd_ue' => '2110', 'nom' => 'Dunes mobiles du cordon littoral à Ammophila arenaria', 'prioritaire' => true, 'cd_hab' => '2682', 'cover' => 0.06, 'area' => 0.80, 'representativite' => 'B', 'conservation' => 'C', 'evaluation_globale' => 'C'],
+            ['site_code' => 'FR2300128', 'cd_ue' => '9130', 'nom' => "Hêtraies de l'Asperulo-Fagetum", 'prioritaire' => false, 'cd_hab' => null, 'cover' => 1.20, 'area' => null, 'representativite' => 'A', 'conservation' => 'B', 'evaluation_globale' => 'B'],
+        ]);
+    }
+
+    /**
+     * 30 espèces déterminantes supplémentaires sur la ZNIEFF 230009093
+     * (test de pagination serveur de la section « Espèces »).
+     */
+    protected function semeZnieffTrenteEspeces(): void
+    {
+        $lignes = [];
+        for ($i = 1; $i <= 30; $i++) {
+            $lignes[] = [
+                'zonage_id' => '230009093',
+                'cd_ref' => 100000 + $i,
+                'nom_cite' => "<i>Espèce test {$i}</i>",
+                'groupe_taxo' => 'Oiseaux',
+                'determinante' => true,
+                'confidentielle' => false,
+            ];
+        }
+        DB::table('znieff_especes')->insert($lignes);
     }
 }

@@ -104,4 +104,88 @@ class ImportZnieffAttributsTest extends TestCase
         $this->assertContains('Miniopterus schreibersii (Kuhl, 1817)', $noms);
         $this->assertNotContains('Rhinolophus ferrumequinum', $noms, 'confidentielle jamais listée');
     }
+
+    /**
+     * Noms vernaculaires TAXREF : joints à l'import — préférence au fichier
+     * dédicacé (TAXVERNv18, fr + eng mélangés), langue française seulement
+     * (LANGUE = français / ISO639_3 = fra) : l'anglais ne prime jamais,
+     * quelle que soit l'ordre des lignes, et la variante qui suit non plus
+     * (première langue gardée par cd_nom — jamais de tri arbitraire entre
+     * les 4 216 taxons gardant des variantes régionales). cdNom absent du
+     * référentiel cité (999002) : ignoré. Version « — v18 » créditée dans
+     * referentiel_imports (piied de page).
+     */
+    public function test_joint_les_noms_vernaculaires_taxvern(): void
+    {
+        config(['portail.inpn.taxref_dossier' => base_path('tests/fixtures/inpn/taxref')]);
+
+        $retour = app(InpnImportService::class)->importZnieff(null, null, avecGeojson: false);
+        $this->assertSame(5, $retour['especes']);
+
+        // Les noms français suivent le cd_ref (taxon accepté), jamais le nom cité.
+        // 60400 appartient à la zone voisine (230030467), lue plus bas.
+        $vern = \DB::table('znieff_especes')->where('zonage_id', '230009093')->pluck('nom_vernaculaire', 'cd_ref');
+        $this->assertSame('Pluvier doré', $vern[3161], 'l anglais (même cd_nom, ligne d avant) ne prime pas');
+        $this->assertSame('Minioptère de Schreibers', $vern[1308]);
+        $this->assertSame('Triton crêté', \DB::table('znieff_especes')->where('zonage_id', '230030467')->value('nom_vernaculaire'));
+        $this->assertSame('Grand rhinolophe', $vern[999001], 'confidentielle : jointe en base (fidèle au référentiel), jamais lue — le filtre absolu d Especes s en charge');
+
+        // Lecture des fiches : `vern` officiel à côté du nom latin.
+        $especes = Especes::especesZonagePagine('230009093', 1, 25);
+        $this->assertSame('Minioptère de Schreibers', $especes['items'][0]['vern']);
+        $this->assertSame('Triton crêté', Especes::especesZonagePagine('230030467', 1, 25)['items'][0]['vern']);
+
+        // Version « — v18 » créditée dans le journal des imports (piied de page).
+        $taxref = ReferentielImport::query()->where('source', 'taxref')->first();
+        $this->assertNotNull($taxref);
+        $this->assertSame((string) config('portail.inpn.versions.taxref').' — v18', $taxref->version_source);
+        $this->assertSame(5, $taxref->nb_entites, 'tous les cd_nom cités du périmètre (langue française incluse)');
+    }
+
+    /**
+     * Repli : distribution ancienne (NOM_VERN de TAXREF, PORTAIL_TAXREF_
+     * FICHIER explicite) — sans TAXVERN dans le dossier, NOM_VERN répond ;
+     * le latin seul quand la colonne est vide ou absente.
+     */
+    public function test_avec_taxref_ic_nom_vern_repli(): void
+    {
+        config([
+            'portail.inpn.taxref_fichier' => base_path('tests/fixtures/inpn/TAXREF.txt'),
+        ]);
+
+        app(InpnImportService::class)->importZnieff(null, null, avecGeojson: false);
+
+        $vern = \DB::table('znieff_especes')->where('zonage_id', '230009093')->pluck('nom_vernaculaire', 'cd_ref');
+        $this->assertSame('Pluvier doré', $vern[3161]);
+        $this->assertSame('Minioptère de Schreibers', $vern[1308]);
+        $this->assertSame('Triton crêté', \DB::table('znieff_especes')->where('zonage_id', '230030467')->value('nom_vernaculaire'));
+        $this->assertNull($vern[999001], 'confidentielle hors TAXREF : latin seul');
+
+        // Sans suffixe de version lisible : version configurée statique.
+        $taxref = ReferentielImport::query()->where('source', 'taxref')->first();
+        $this->assertSame(3, $taxref->nb_entites, 'seuls les NOM_VERN non vides sont retenus');
+        $this->assertSame((string) config('portail.inpn.versions.taxref'), $taxref->version_source);
+    }
+
+    /**
+     * TAXREF jamais téléchargé (conditions INPN non acceptées) : l'import
+     * reste fonctionnel, nom_vernaculaire null partout, aucun crédit
+     * journalisé — l'absence est tracée par un avertissement, jamais une
+     * valeur improvisée.
+     */
+    public function test_importe_sans_taxref_ic_le_latin_seul(): void
+    {
+        config([
+            // éviction explicite ET du vrai dossier (data/inpn-data/taxref,
+            // présent quandmême en local) : aucun fichier ne doit sortir
+            'portail.inpn.taxref_fichier' => base_path('tests/fixtures/inpn/absent.txt'),
+            'portail.inpn.taxref_dossier' => base_path('tests/fixtures/inpn/absent-dir'),
+        ]);
+
+        $retour = app(InpnImportService::class)->importZnieff(null, null, avecGeojson: false);
+        $this->assertSame(5, $retour['especes'], 'l absence de TAXREF ne bloque pas les espèces importées');
+
+        $this->assertSame(0, \DB::table('znieff_especes')->whereNotNull('nom_vernaculaire')->count());
+        $this->assertNull(ReferentielImport::query()->where('source', 'taxref')->first());
+    }
 }

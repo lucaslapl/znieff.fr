@@ -108,6 +108,8 @@ class InpnImportService
      * Espèces citées par les ZNIEFF du périmètre (REF_ESPECE.csv, ~2,1 M de
      * lignes France entière) : lecture en flux, insertion par lots.
      * REF_ESPECE.csv porte le NM_SFFZN (clé de zonages.id) — filtre direct.
+     * Noms vernaculaires TAXREF joints quand le fichier est présent
+     * (colonne nom_vernaculaire) ; le latin seul sinon.
      *
      * Une espèce CONFIDENTIELLE reste importée avec son flag : elle ne doit
      * JAMAIS être affichée ni comptée (filtre absolu posé côté lecture dans
@@ -138,6 +140,14 @@ class InpnImportService
             }
         }
 
+        // Noms vernaculaires TAXREF : première lecture en flux des cd_ref
+        // DISTINCTS du périmètre (petit ensemble), puis filtrage de TAXREF
+        // sur cet ensemble — jamais la distribution complète (TAXREFv18 :
+        // 317 Mo) en mémoire. Fichier absent : avertissement, latin seul.
+        $vern = $this->nomsVernaculairesTaxref(
+            $this->cdRefsDuPerimetre($fichier, $perimetre, $versNational),
+        );
+
         $count = 0;
         $chunk = [];
         foreach ($this->csv->iterate($fichier) as $rec) {
@@ -155,6 +165,7 @@ class InpnImportService
                 'zonage_id' => $nat,
                 'cd_ref' => (int) ($rec['cd_ref'] ?? 0),
                 'nom_cite' => (string) ($rec['nom_cite'] ?? ''),
+                'nom_vernaculaire' => $vern[trim((string) ($rec['cd_ref'] ?? ''))] ?? null,
                 'groupe_taxo' => $this->nonVide($rec['groupe_taxo'] ?? null),
                 // Dictionnaire INPN (FG_ESP) : A autre espèce ; E autre espèce
                 // à enjeux ; D déterminante ; C confidentielle.
@@ -175,6 +186,187 @@ class InpnImportService
         }
 
         return $count;
+    }
+
+    /**
+     * cd_ref DISTINCTS (texte) cités par le périmètre dans REF_ESPECE.csv :
+     * première lecture en flux, servant seulement au filtrage de TAXREF
+     * (la carte des noms vernaculaires reste de quelques milliers d'entrées,
+     * jamais la distribution complète en mémoire).
+     *
+     * @param  array<string, int>  $perimetre  NM_SFFZN → true (array_flip)
+     * @param  array<string, string>  $versNational  repli ID_ZNIEFF → NM_SFFZN
+     * @return array<string, true>
+     */
+    private function cdRefsDuPerimetre(string $fichier, array $perimetre, array $versNational): array
+    {
+        $cdRefs = [];
+        foreach ($this->csv->iterate($fichier) as $rec) {
+            if (($rec['fg_supp'] ?? '') === 'true') {
+                continue;
+            }
+            $nat = trim((string) ($rec['nm_sffzn'] ?? ''));
+            if ($nat === '') {
+                $nat = $versNational[trim((string) ($rec['id_znieff'] ?? ''))] ?? '';
+            }
+            if ($nat === '' || ! isset($perimetre[$nat])) {
+                continue;
+            }
+            $cd = trim((string) ($rec['cd_ref'] ?? ''));
+            if ($cd !== '') {
+                $cdRefs[$cd] = true;
+            }
+        }
+
+        return $cdRefs;
+    }
+
+    /**
+     * Noms vernaculaires TAXREF (MNHN) : lecture en flux (distribution
+     * séparée, conditions INPN à accepter — cf. config portail.inpn).
+     * Préféré : le fichier dédicacé TAXVERNv*.txt (léger, fr + eng
+     * mélangés — filtrés sur ISO639_3 = fra / LANGUE = français ;
+     * première langue gardée par cd_nom, l'anglais ne prime jamais et
+     * la variante régionale qui suit non plus) ; repli : NOM_VERN de
+     * TAXREFv*.txt / TAXREF.txt. Les en-têtes changent d'orthographe
+     * selon la version (CD_NOM v11+ / cdNom v17+) — iterate() bascule
+     * déjà tout en minuscules et colonne() tente les orthographes.
+     * Aucun fichier trouvé (jamais téléchargé) : avertissement, carte
+     * vide — les fiches ZNIEFF retombent sur le nom latin.
+     *
+     * @param  array<string, true>  $cdRefs
+     * @return array<string, string>
+     */
+    private function nomsVernaculairesTaxref(array $cdRefs): array
+    {
+        $fichier = $this->fichierTaxref();
+        if ($fichier === null) {
+            Log::info('TAXREF absent : nom_vernaculaire laissé null (nom latin seul).', [
+                'fichier_explicite' => (string) config('portail.inpn.taxref_fichier', ''),
+                'dossier' => (string) config('portail.inpn.taxref_dossier', ''),
+            ]);
+
+            return [];
+        }
+
+        $taxvern = $this->estTaxvern($fichier);
+
+        $vern = [];
+        foreach ($this->csv->iterate($fichier, "\t") as $rec) {
+            // TAXVERN est indexé par CD_NOM (taxon accepté), TAXREF par CD_REF.
+            $cd = $this->colonne($rec, $taxvern ? ['cd_nom', 'cdnom'] : ['cd_ref', 'cdref']);
+            if ($cd === null || ($cdRefs !== [] && ! isset($cdRefs[$cd]))) {
+                continue;
+            }
+            $nomVern = $taxvern ? $this->vernFrancais($rec) : $this->colonne($rec, ['nom_vern', 'nomvern', 'nom_vernaculaire']);
+            if ($nomVern === null) {
+                continue;
+            }
+            if ($taxvern) {
+                // Le français prime sur l'anglais, quelle que soit l'ordre des
+                // lignes ; le français qui suit (variante régionale) ne prime
+                // pas non plus (première langue gardée, jamais de tri).
+                if (! isset($vern[$cd]) || $this->français($rec)) {
+                    $vern[$cd] = $nomVern;
+                }
+
+                continue;
+            }
+            $vern[$cd] ??= $nomVern; // première occurrence gardée (le synonyme qui suit ne prime pas)
+        }
+
+        $this->registrer('taxref', count($vern), $this->versionTaxref($fichier));
+
+        return $vern;
+    }
+
+    /**
+     * Fichier TAXREF utilisé : PORTAIL_TAXREF_FICHIER (explicite), sinon
+     * candidats du dossier configuré par priorité — le dédicacé
+     * TAXVERNv*.txt d'abord (léger, langues mélangées), puis TAXREFv*.txt
+     * et TAXREF.txt (NOM_VERN). glob() est trié alphanumériquement :
+     * v18 avant v17, la distribution la plus récente d'abord.
+     */
+    private function fichierTaxref(): ?string
+    {
+        $explicite = (string) config('portail.inpn.taxref_fichier', '');
+        if ($explicite !== '') {
+            return is_file($explicite) ? $explicite : null;
+        }
+
+        $dossier = (string) config('portail.inpn.taxref_dossier', '');
+        foreach (['TAXVERNv*.txt', 'TAXREFv*.txt', 'TAXREF.txt'] as $motif) {
+            $candidats = glob($dossier.'/'.$motif) ?: [];
+            if ($candidats !== []) {
+                return $candidats[0];
+            }
+        }
+
+        return null;
+    }
+
+    /** TAXVERNv*.txt : le fichier dédicacé aux noms vernaculaires. */
+    private function estTaxvern(string $fichier): bool
+    {
+        return str_starts_with(basename($fichier), 'TAXVERN');
+    }
+
+    /**
+     * Nom vernaculaire de la ligne : LB_VERN seulement si la langue est le
+     * français (LANGUE = français / ISO639_3 = fra) — l'anglais ne doit
+     * jamais sortir sur une fiche ZNIEFF.
+     *
+     * @param  array<string, string>  $rec
+     */
+    private function vernFrancais(array $rec): ?string
+    {
+        $langue = $this->colonne($rec, ['langue']);
+        $iso = $this->colonne($rec, ['iso639_3', 'iso6393']);
+        if ($langue === null && $iso === null) {
+            return null; // ligne sans langue ni ISO639_3 : jamais deviné
+        }
+        $français = ($langue !== null && mb_strtolower($langue) === 'français') || $iso === 'fra';
+
+        return $français ? $this->colonne($rec, ['lb_vern', 'lbvern']) : null;
+    }
+
+    /** La ligne est-elle en français (LANGUE / ISO639_3) ? */
+    private function français(array $rec): bool
+    {
+        return $this->vernFrancais($rec) !== null;
+    }
+
+    /**
+     * Version créditée dans le journal des imports : suffixe lu dans le
+     * nom du fichier (TAXREFv18.txt → « v18 ») ; orthographe inconnue :
+     * version configurée statique (config portail.inpn.versions.taxref).
+     */
+    private function versionTaxref(string $fichier): ?string
+    {
+        if (preg_match('/^(?:TAXREF|TAXVERN)v([0-9A-Za-z]+)\.txt$/i', basename($fichier), $m) !== 1) {
+            return null;
+        }
+
+        return (string) config('portail.inpn.versions.taxref').' — v'.$m[1];
+    }
+
+    /**
+     * Première colonne d'en-tête reconnue, non vide, en texte pur —
+     * l'en-tête de TAXREF change d'orthographe selon la version.
+     *
+     * @param  array<string, string>  $rec
+     * @param  array<int, string>  $candidats
+     */
+    private function colonne(array $rec, array $candidats): ?string
+    {
+        foreach ($candidats as $c) {
+            $v = isset($rec[$c]) ? trim((string) $rec[$c]) : '';
+            if ($v !== '') {
+                return $v;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -1048,12 +1240,12 @@ class InpnImportService
         }
     }
 
-    private function registrer(string $source, int $nbEntites): void
+    private function registrer(string $source, int $nbEntites, ?string $version = null): void
     {
         ReferentielImport::updateOrCreate(
             ['source' => $source],
             [
-                'version_source' => (string) config("portail.inpn.versions.{$source}"),
+                'version_source' => $version ?? (string) config("portail.inpn.versions.{$source}"),
                 'nb_entites' => $nbEntites,
                 'importe_le' => now(),
             ],

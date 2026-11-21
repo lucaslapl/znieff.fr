@@ -155,14 +155,18 @@ const urlGroupe = (g) => ziggyRoute(
                     <tbody>
                         <tr v-for="e in especes" :key="e.cd_ref + '|' + e.nom">
                             <td v-if="groupeActif === null">{{ e.groupe }}</td>
-                            <td><em>{{ e.nom }}</em></td>
+                            <td>
+                                <template v-if="e.vern">{{ e.vern }} <em>({{ e.nom }})</em></template>
+                                <em v-else>{{ e.nom }}</em>
+                            </td>
                         </tr>
                     </tbody>
                 </table>
                 <ListePager :pagination="paginationEspeces" mot="espèces" :only="onlyEspeces" />
                 <p class="hint">
                     Source : inventaire ZNIEFF INPN · MNHN<template v-if="versionZnieff"> — {{ versionZnieff }}</template>.
-                    Noms cités tels quels dans le référentiel, hors espèces confidentielles. Habitats,
+                    Noms cités tels quels dans le référentiel, hors espèces confidentielles ; noms français
+                    officiels : TAXREF (MNHN). Habitats,
                     facteurs d'évolution et descriptif complet :
                     <a :href="zonage.url_inpn" target="_blank" rel="noopener">fiche INPN de la zone ↗</a>.
                 </p>

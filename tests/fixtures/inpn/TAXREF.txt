@@ -1,0 +1,8 @@
+cdNom	cdRef	rang	regne	famille	nomVern	nomVernEng
+3161	3161	ES	Oiseaux	Scolopacidae	Pluvier doré	Eurasian Golden Plover
+1308	1308	ES	Mammifères	Miniopteridae	Minioptère de Schreibers	Schreibers Bent-winged Bat
+60400	60400	ES	Amphibiens	Salamandridae	Triton crêté	Great Crested Newt
+60612	60612	ES	Oiseaux	Picidae		Grey-headed Woodpecker
+999002	3161	ES	Oiseaux	Scolopacidae	synonyme ignoré	
+123456	123456	ES	Insectes	Duponcheliidae		house fly
+3162	3162	ES	Oiseaux	Scolopacidae	Pluvier doré	

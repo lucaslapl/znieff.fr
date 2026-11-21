@@ -168,6 +168,8 @@ class FicheZonageTest extends TestCase
             // tri groupe_taxo puis nom_cite : Mammifères avant Oiseaux
             ->where('especes.0.groupe', 'Mammifères')
             ->where('especes.0.nom', 'Miniopterus schreibersii (Kuhl, 1817)') // italique HTML retirée
+            // pas de nom vernaculaire semé : le latin seul (TAXREF jamais improvisé)
+            ->where('especes.0.vern', null)
             ->where('especes.1.groupe', 'Oiseaux')
             ->where('especes.1.nom', 'Pluvialis apricaria (Linnaeus, 1758)')
             // l'espèce confidentielle n'apparaît nulle part dans les props

@@ -20,6 +20,16 @@ return [
         'dir' => env('PORTAIL_INPN_DIR', base_path('data/inpn-data')),
         'admin_express_dir' => env('PORTAIL_ADMIN_EXPRESS_DIR', base_path('data/inpn-data/admin-express')),
 
+        // TAXREF (MNHN) : référentiel taxonomique — distribution séparée,
+        // conditions INPN à accepter (v18 : ~353 Mo complet, TAXVERNv18
+        // dédicacé aux noms vernaculaires ~9,7 Mo, fr + eng mélangés).
+        // PORTAIL_TAXREF_FICHIER (fichier explicite) l'emporte ; sinon le
+        // pilote cherche dans PORTAIL_TAXREF_DIR ( défaut : data/inpn-data/
+        // taxref) dans l'ordre : TAXVERNv*.txt → TAXREFv*.txt → TAXREF.txt.
+        // Aucun fichier trouvé : nom_vernaculaire reste null, latin seul.
+        'taxref_fichier' => env('PORTAIL_TAXREF_FICHIER', ''),
+        'taxref_dossier' => env('PORTAIL_TAXREF_DIR', base_path('data/inpn-data/taxref')),
+
         // Versions des référentiels, affichées en pied de page et sur la page
         // Données & méthodologie. Date de la base diffusée par l'INPN.
         'versions' => [
@@ -27,6 +37,7 @@ return [
             'natura' => 'base Natura 2000 (INPN/MNHN) — décembre 2024',
             'aires' => 'inventaire des aires protégées APA-INPN — juillet 2025',
             'adminexpress' => 'contours communaux AdminExpress (IGN) — édition 2025',
+            'taxref' => 'référentiel taxonomique TAXREF (MNHN)',
         ],
     ],
 

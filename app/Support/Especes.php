@@ -26,8 +26,10 @@ final class Especes
      * taxonomique puis nom — hors espèces confidentielles (filtre absolu).
      * Filtre optionnel par groupe taxonomique (sous-onglets de la fiche :
      * le filtre reste posé côté serveur, la pagination avec).
+     * `vern` : nom vernaculaire officiel TAXREF (MNHN) ; null quand le
+     * référentiel n'en a pas — la fiche retombe alors sur le latin.
      *
-     * @return array{total: int, page: int, derniere: int, items: array<int, array{cd_ref: int, nom: string, groupe: string}>}
+     * @return array{total: int, page: int, derniere: int, items: array<int, array{cd_ref: int, nom: string, vern: ?string, groupe: string}>}
      */
     public static function especesZonagePagine(string $zonageId, int $page, int $parPage, ?string $groupe = null): array
     {
@@ -55,10 +57,11 @@ final class Especes
             ->orderBy('groupe_taxo')
             ->orderBy('nom_cite')
             ->forPage($page, $parPage)
-            ->get(['cd_ref', 'nom_cite', 'groupe_taxo'])
+            ->get(['cd_ref', 'nom_cite', 'nom_vernaculaire', 'groupe_taxo'])
             ->map(fn ($r) => [
                 'cd_ref' => (int) $r->cd_ref,
                 'nom' => self::textePur((string) $r->nom_cite),
+                'vern' => $r->nom_vernaculaire !== null && $r->nom_vernaculaire !== '' ? (string) $r->nom_vernaculaire : null,
                 'groupe' => self::groupe($r->groupe_taxo),
             ])
             ->all();

@@ -1,0 +1,125 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Services\InpnImportService;
+use App\Support\Especes;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
+use Inertia\Testing\AssertableInertia;
+use Tests\Concerns\SemeFiches;
+use Tests\TestCase;
+
+/**
+ * Fiche espèce /espece/{cd_ref} (itération P1) : TAXREF v18 + statuts BDC v18
+ * importés depuis les fixtures, graine SemeFiches (dept 27).
+ *
+ *  - 3161 (Pluvialis apricaria) : fiche publique, statuts PN/DH/LRN/BERN,
+ *    ZNIEFF 230009093 déterminante.
+ *  - 999001 (Rhinolophus) : flaggé confidentiel → 404.
+ *  - 60400 (Triturus cristatus) : ajouté au référentiel de sensibilité
+ *    (national) → 404, jamais de fiche d'espèce sensible.
+ */
+class EspeceFicheTest extends TestCase
+{
+    use RefreshDatabase;
+    use SemeFiches;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->semeFiches();
+
+        config([
+            'portail.inpn.bdc_dossier' => base_path('tests/fixtures/inpn-bdc'),
+            'portail.inpn.taxref_dossier' => base_path('tests/fixtures/inpn-taxref'),
+        ]);
+        app(InpnImportService::class)->importBdc();
+
+        DB::table('sensibilite_mtd')->insert([
+            ['id' => 5, 'cd_reg' => '28', 'libelle_liste' => 'Liste régionale test', 'ref_biblio' => null, 'url' => null, 'ressource' => null],
+        ]);
+        DB::table('sensibilite_especes')->insert([
+            ['cd_nom' => 60400, 'cd_ref' => 60400, 'cd_sensibilite' => 3, 'duree' => null, 'cd_dept' => null, 'cd_sens_mtd' => 5],
+        ]);
+    }
+
+    public function test_fiche_espece_publique_avec_statuts_et_znieff(): void
+    {
+        $reponse = $this->get('/espece/3161');
+
+        $reponse->assertOk();
+        $reponse->assertInertia(fn (AssertableInertia $page) => $page
+            ->component('Especes/Show')
+            ->where('espece.cd_ref', 3161)
+            ->where('espece.nom', 'Pluvialis apricaria')
+            ->where('espece.vern', null) // graine sans nom vernaculaire TAXREF joint
+            ->where('espece.groupe', 'Oiseaux')
+            ->where('espece.habitat', 'Terrestre')
+            ->where('espece.url_inpn', 'https://inpn.mnhn.fr/espece/cd_nom/3161')
+            ->where('nbZonages', 1)
+            ->where('zonages.0.id', '230009093')
+            ->where('zonages.0.nom', 'Forêt de Bord et de Louviers')
+            ->where('meta.canonical', route('espece.show', 3161))
+            // 4 statuts BDC de la fixture pour 3161, groupés.
+            ->has('statuts', 4)
+        );
+
+        // Les statuts contiennent bien PN (Protection) et DH (annexe II).
+        $statuts = Especes::statutsEspece(3161);
+        $types = array_merge(...array_map(fn (array $g) => array_column($g['statuts'], 'type'), $statuts));
+        sort($types);
+        $this->assertSame(['BERN', 'DH', 'LRN', 'PN'], $types);
+    }
+
+    public function test_espece_confidentielle_renvoie_404(): void
+    {
+        $this->get('/espece/999001')->assertNotFound();
+        $this->assertFalse(Especes::especeVisible(999001));
+    }
+
+    public function test_espece_sensible_v18_renvoie_404(): void
+    {
+        // 60400 est déterminante sur la ZNIEFF 230030467 mais en pré-liste
+        // nationale de sensibilité : jamais de fiche, jamais comptée.
+        $this->get('/espece/60400')->assertNotFound();
+        $this->assertFalse(Especes::especeVisible(60400));
+
+        $page = Especes::especesZonagePagine('230030467', 1, 25);
+        $this->assertSame(0, $page['total']);
+    }
+
+    public function test_espece_sans_znieff_determinante_a_une_fiche_vide(): void
+    {
+        $reponse = $this->get('/espece/60612');
+
+        $reponse->assertOk();
+        $reponse->assertInertia(fn (AssertableInertia $page) => $page
+            ->component('Especes/Show')
+            ->where('espece.nom', 'Picus canus')
+            ->where('nbZonages', 0)
+            ->has('zonages', 0)
+        );
+    }
+
+    public function test_cd_ref_inconnu_renvoie_404(): void
+    {
+        $this->get('/espece/424242')->assertNotFound();
+    }
+
+    public function test_sitemap_liste_les_fiches_especes_visibles_seulement(): void
+    {
+        $index = $this->get('/sitemap.xml');
+        $index->assertOk();
+        $this->assertStringContainsString('/sitemaps/especes-1.xml', $index->getContent());
+
+        $lot = $this->get('/sitemaps/especes-1.xml');
+        $lot->assertOk();
+        $contenu = $lot->getContent();
+        $this->assertStringContainsString('/espece/3161', $contenu);
+        $this->assertStringContainsString('/espece/60612', $contenu);
+        // Ni l'espèce confidentielle, ni l'espèce sensible.
+        $this->assertStringNotContainsString('/espece/999001', $contenu);
+        $this->assertStringNotContainsString('/espece/60400', $contenu);
+    }
+}

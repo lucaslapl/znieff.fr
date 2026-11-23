@@ -156,8 +156,10 @@ const urlGroupe = (g) => ziggyRoute(
                         <tr v-for="e in especes" :key="e.cd_ref + '|' + e.nom">
                             <td v-if="groupeActif === null">{{ e.groupe }}</td>
                             <td>
-                                <template v-if="e.vern">{{ e.vern }} <em>({{ e.nom }})</em></template>
-                                <em v-else>{{ e.nom }}</em>
+                                <Link :href="route('espece.show', e.cd_ref)">
+                                    <template v-if="e.vern">{{ e.vern }} <em>({{ e.nom }})</em></template>
+                                    <em v-else>{{ e.nom }}</em>
+                                </Link>
                             </td>
                         </tr>
                     </tbody>

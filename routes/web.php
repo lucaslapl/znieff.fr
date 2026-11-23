@@ -4,6 +4,7 @@ use App\Http\Controllers\AireProtegeeController;
 use App\Http\Controllers\CarteController;
 use App\Http\Controllers\CommuneController;
 use App\Http\Controllers\DonneesController;
+use App\Http\Controllers\EspeceController;
 use App\Http\Controllers\HomeController;
 use App\Http\Controllers\NaturaSiteController;
 use App\Http\Controllers\RechercheController;
@@ -111,3 +112,10 @@ Route::get('/natura/{code}', [NaturaSiteController::class, 'show'])
 Route::get('/ap/{id}', [AireProtegeeController::class, 'show'])
     ->where('id', '[Ff][Rr][0-9a-zA-Z]{6,12}')
     ->name('ap.show');
+
+// -- Espèce : /espece/{cd_ref} (TAXREF v18 + statuts BDC v18) — uniquement
+//    les taxons non sensibles (référentiel SINP v18) et non confidentiels :
+//    les autres renvoient 404 (jamais de fiche d'espèce sensible).
+Route::get('/espece/{cd_ref}', [EspeceController::class, 'show'])
+    ->where('cd_ref', '[0-9]{1,10}')
+    ->name('espece.show');

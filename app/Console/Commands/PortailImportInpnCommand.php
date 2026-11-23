@@ -23,11 +23,11 @@ use Illuminate\Support\Facades\DB;
 class PortailImportInpnCommand extends Command
 {
     protected $signature = 'portail:import-inpn
-        {--source=all : znieff|natura|aires|sensibilite|all}
+        {--source=all : znieff|natura|aires|sensibilite|bdc|all}
         {--dept= : un seul département (mode test, ex. 27) — périmètre de table destructif}
         {--skip-geojson : ne pas (ré)générer les surcouches GeoJSON}';
 
-    protected $description = 'Importe les référentiels INPN (ZNIEFF, Natura 2000, aires protégées, sensibilité SINP) et précalcule les croisements';
+    protected $description = 'Importe les référentiels INPN (ZNIEFF, Natura 2000, aires protégées, sensibilité SINP, statuts BDC) et précalcule les croisements';
 
     public function handle(InpnImportService $inpn): int
     {
@@ -39,8 +39,8 @@ class PortailImportInpnCommand extends Command
         $dept = $this->option('dept') !== null ? (string) $this->option('dept') : null;
         $avecGeojson = ! $this->option('skip-geojson');
 
-        if (! in_array($source, ['znieff', 'natura', 'aires', 'sensibilite', 'all'], true)) {
-            $this->error("Source inconnue : {$source} (znieff|natura|aires|sensibilite|all)");
+        if (! in_array($source, ['znieff', 'natura', 'aires', 'sensibilite', 'bdc', 'all'], true)) {
+            $this->error("Source inconnue : {$source} (znieff|natura|aires|sensibilite|bdc|all)");
 
             return self::FAILURE;
         }
@@ -87,6 +87,15 @@ class PortailImportInpnCommand extends Command
             $this->info('Référentiel de sensibilité SINP v18…');
             $retour = $inpn->importSensibilite($progression);
             $this->afficher('sensibilite', $retour, ['lignes', 'taxons', 'mtd']);
+        }
+
+        // Statuts BDC v18 + fiches taxons TAXREF v18 : filtrés aux cd_ref du
+        // périmètre courant (znieff_especes ∪ natura_especes), donc à
+        // relancer après znieff/natura (ou --dept).
+        if (in_array($source, ['bdc', 'all'], true)) {
+            $this->info('Statuts BDC v18 + taxons TAXREF v18 (périmètre)…');
+            $retour = $inpn->importBdc($progression);
+            $this->afficher('bdc', $retour, ['statuts', 'taxons']);
         }
 
         $this->info('Import INPN terminé.');

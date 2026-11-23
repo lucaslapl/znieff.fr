@@ -297,6 +297,28 @@ class InpnImportService
             return is_file($explicite) ? $explicite : null;
         }
 
+        foreach ($this->dossiersTaxref() as $dossier) {
+            foreach (['TAXVERNv*.txt', 'TAXREFv*.txt', 'TAXREF.txt'] as $motif) {
+                $candidats = glob($dossier.'/'.$motif) ?: [];
+                if ($candidats !== []) {
+                    return $candidats[0];
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Dossiers candidats pour TAXREF : dossier configuré
+     * (PORTAIL_TAXREF_DIR / portail.inpn.taxref_dossier), puis
+     * <inpn.dir>/TAXREF et <inpn.dir>/taxref (le conteneur Linux est
+     * case-sensitive, le poste Windows local non).
+     *
+     * @return array<int, string>
+     */
+    private function dossiersTaxref(): array
+    {
         $dossiers = [(string) config('portail.inpn.taxref_dossier', '')];
         try {
             $dossiers[] = $this->dir().'/TAXREF';
@@ -304,8 +326,18 @@ class InpnImportService
         } catch (RuntimeException) {
             // dossier INPN non monté : on se contente du dossier configuré
         }
-        foreach (array_unique(array_filter($dossiers)) as $dossier) {
-            foreach (['TAXVERNv*.txt', 'TAXREFv*.txt', 'TAXREF.txt'] as $motif) {
+
+        return array_values(array_unique(array_filter($dossiers)));
+    }
+
+    /**
+     * Fichier TAXREF complet (tabulé, tous taxons) pour l'extraction des
+     * fiches taxons du périmètre : TAXREFv*.txt, repli TAXREF.txt.
+     */
+    private function fichierTaxrefComplet(): ?string
+    {
+        foreach ($this->dossiersTaxref() as $dossier) {
+            foreach (['TAXREFv*.txt', 'TAXREF.txt'] as $motif) {
                 $candidats = glob($dossier.'/'.$motif) ?: [];
                 if ($candidats !== []) {
                     return $candidats[0];
@@ -1121,10 +1153,10 @@ class InpnImportService
                 'cd_ref' => $cdRef,
                 'cd_sensibilite' => (int) ($this->intOuNull($rec['cd_sensibilite'] ?? null) ?? 0),
                 'duree' => $this->intOuNull($rec['duree'] ?? null),
-                'cd_dept' => $this->nonVide($rec['cd_dept'] ?? null),
+                'cd_dept' => $this->nonVide($this->utf8((string) ($rec['cd_dept'] ?? ''))),
                 'statut_biologique' => $this->intOuNull($rec['statut_biologique'] ?? null),
                 'comportement' => $this->intOuNull($rec['comportement'] ?? null),
-                'autre' => $this->nonVide($rec['autre'] ?? null),
+                'autre' => $this->nonVide($this->utf8((string) ($rec['autre'] ?? ''))),
                 'cd_sens_mtd' => $this->intOuNull($rec['cd_sens_mtd'] ?? null),
                 'created_at' => now(),
                 'updated_at' => now(),
@@ -1186,11 +1218,11 @@ class InpnImportService
             }
             $chunk[] = [
                 'id' => $id,
-                'cd_reg' => (string) ($this->nonVide($rec['cd_reg'] ?? null) ?? ''),
+                'cd_reg' => (string) ($this->nonVide($this->utf8((string) ($rec['cd_reg'] ?? ''))) ?? ''),
                 'libelle_liste' => $this->nonVide($this->utf8((string) ($rec['libelle_liste'] ?? ''))),
                 'ref_biblio' => $this->nonVide($this->utf8((string) ($rec['ref_biblio'] ?? ''))),
-                'url' => $this->nonVide($rec['url'] ?? null),
-                'ressource' => $this->nonVide($rec['ressource'] ?? null),
+                'url' => $this->nonVide($this->utf8((string) ($rec['url'] ?? ''))),
+                'ressource' => $this->nonVide($this->utf8((string) ($rec['ressource'] ?? ''))),
             ];
             if (count($chunk) >= self::BATCH) {
                 DB::table('sensibilite_mtd')->insert($chunk);
@@ -1229,6 +1261,251 @@ class InpnImportService
         }
 
         return null;
+    }
+
+    // ==================================================================
+    // Base de Connaissance des statuts (BDC v18) + fiches taxons TAXREF v18
+    // ==================================================================
+
+    /**
+     * Statuts de protection/réglementation (BDC v18, INPN) des espèces du
+     * périmètre + extraction TAXREF v18 (taxons_ref) pour les fiches espèces.
+     *
+     * Périmètre = cd_ref distincts de znieff_especes ∪ natura_especes (en
+     * mode --dept, seules les espèces du département sont concernées). Les
+     * deux tables sont rechargées intégralement (idempotent).
+     *
+     * Exclus à l'import (jamais dans une table affichable) : les statuts
+     * ZDET (redondants avec znieff_especes.determinante), SENSNAT/SENSREG/
+     * SENSDEP (la sensibilité ne s'affiche JAMAIS — elle ne filtre que côté
+     * requête, App\Support\Especes) et les territoires communaux INSEEC.
+     *
+     * @param  callable(int): void  $tick
+     * @return array{statuts: int, taxons: int}
+     */
+    public function importBdc(?callable $tick = null): array
+    {
+        $cdRefs = $this->cdRefsPerimetre();
+        if ($cdRefs === []) {
+            Log::warning('Aucun cd_ref dans le périmètre (znieff_especes / natura_especes vide) : BDC non importé.');
+
+            return ['statuts' => 0, 'taxons' => 0];
+        }
+
+        $nbStatuts = $this->importEspeceStatuts($cdRefs, $tick);
+        $nbTaxons = $this->importTaxonsRef($cdRefs, $tick);
+
+        return ['statuts' => $nbStatuts, 'taxons' => $nbTaxons];
+    }
+
+    /**
+     * cd_ref distincts du périmètre courant : znieff_especes ∪ natura_especes.
+     *
+     * @return array<string, true>
+     */
+    private function cdRefsPerimetre(): array
+    {
+        $cdRefs = [];
+        foreach (DB::table('znieff_especes')->distinct()->pluck('cd_ref') as $cd) {
+            $cdRefs[(string) $cd] = true;
+        }
+        foreach (DB::table('natura_especes')->whereNotNull('cd_ref')->distinct()->pluck('cd_ref') as $cd) {
+            $cdRefs[(string) $cd] = true;
+        }
+
+        return $cdRefs;
+    }
+
+    /**
+     * Statuts BDC v18 filtrés au périmètre (bdc_18_01.csv, ~448 k lignes,
+     * lu en flux, encodage Windows-1252 converti champ par champ).
+     *
+     * @param  array<string, true>  $cdRefs
+     * @param  callable(int): void  $tick
+     */
+    private function importEspeceStatuts(array $cdRefs, ?callable $tick): int
+    {
+        $fichier = $this->dossierBdc().'/bdc_18_01.csv';
+        if (! is_file($fichier)) {
+            foreach (glob($this->dossierBdc().'/bdc_*.csv') ?: [] as $candidat) {
+                $fichier = $candidat;
+                break;
+            }
+        }
+        if (! is_file($fichier)) {
+            throw new RuntimeException('Base de connaissance BDC introuvable : '.$this->dossierBdc().'/bdc_*.csv');
+        }
+
+        $typesExclus = ['ZDET', 'SENSNAT', 'SENSREG', 'SENSDEP'];
+
+        DB::table('espece_statuts')->delete(); // rechargement intégral (idempotent)
+        $chunk = [];
+        $nb = 0;
+        foreach ($this->csv->iterate($fichier, ',') as $rec) {
+            $cd = trim((string) ($rec['cd_ref'] ?? ''));
+            if ($cd === '' || ! isset($cdRefs[$cd])) {
+                continue;
+            }
+            $type = strtoupper(trim((string) ($rec['cd_type_statut'] ?? '')));
+            if (in_array($type, $typesExclus, true)) {
+                continue; // ZDET redondant, SENS* jamais importé (filtre uniquement)
+            }
+            $sig = trim((string) ($rec['cd_sig'] ?? ''));
+            if (str_starts_with($sig, 'INSEEC')) {
+                continue; // territoire communal exclu
+            }
+            $chunk[] = [
+                'cd_ref' => (int) $cd,
+                // Tous les champs texte passent par utf8() : le fichier BDC est
+                // en Windows-1252, un octet haut non converti ferait échouer
+                // le json_encode des props Inertia (data-page vide).
+                'cd_type_statut' => $this->utf8($type),
+                'lb_type_statut' => $this->utf8(trim((string) ($rec['lb_type_statut'] ?? ''))),
+                'regroupement_type' => $this->utf8(trim((string) ($rec['regroupement_type'] ?? ''))),
+                'code_statut' => $this->nonVide($this->utf8((string) ($rec['code_statut'] ?? ''))),
+                'label_statut' => $this->nonVide($this->utf8((string) ($rec['label_statut'] ?? ''))),
+                'rq_statut' => $this->nonVide($this->utf8((string) ($rec['rq_statut'] ?? ''))),
+                'cd_sig' => $this->utf8($sig),
+                'lb_adm_tr' => $this->nonVide($this->utf8((string) ($rec['lb_adm_tr'] ?? ''))),
+                'niveau_admin' => $this->nonVide($this->utf8((string) ($rec['niveau_admin'] ?? ''))),
+                'doc_url' => $this->nonVide($this->utf8((string) ($rec['doc_url'] ?? ''))),
+                'full_citation' => $this->nonVide($this->utf8((string) ($rec['full_citation'] ?? ''))),
+                'thematique' => $this->nonVide($this->utf8((string) ($rec['thematique'] ?? ''))) ?? 'STATUTS',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ];
+            if (count($chunk) >= self::BATCH) {
+                DB::table('espece_statuts')->insert($chunk);
+                $nb += count($chunk);
+                $chunk = [];
+                if ($tick !== null) {
+                    $tick($nb);
+                }
+            }
+        }
+        if ($chunk !== []) {
+            DB::table('espece_statuts')->insert($chunk);
+            $nb += count($chunk);
+        }
+
+        $this->registrer('bdc', $nb, (string) config('portail.inpn.versions.bdc'));
+
+        return $nb;
+    }
+
+    /**
+     * Extraction TAXREF v18 (fichier complet tabulé, lu en flux) pour les
+     * cd_ref du périmètre : nom valide, groupes INPN, habitat (libellé via
+     * habitats_note.csv), présence France / outre-mer, URL fiche INPN.
+     *
+     * @param  array<string, true>  $cdRefs
+     * @param  callable(int): void  $tick
+     */
+    private function importTaxonsRef(array $cdRefs, ?callable $tick): int
+    {
+        $fichier = $this->fichierTaxrefComplet();
+        if ($fichier === null) {
+            Log::warning('TAXREFv*.txt introuvable : taxons_ref non importé (fiches espèces en repli sur znieff_especes).');
+
+            return 0;
+        }
+
+        $habitats = $this->carteHabitats();
+        $om = ['GF', 'MAR', 'GUA', 'SM', 'SB', 'SPM', 'MAY', 'EPA', 'REU', 'SA', 'TA', 'TAAF', 'PF', 'NC', 'WF', 'CLI'];
+
+        DB::table('taxons_ref')->delete(); // rechargement intégral (idempotent)
+        $chunk = [];
+        $nb = 0;
+        $vus = []; // TAXREF contient plusieurs lignes par cd_ref (synonymes) : PK = cd_ref, on garde la première
+        foreach ($this->csv->iterate($fichier, "\t") as $rec) {
+            $cd = trim((string) ($rec['cd_ref'] ?? ''));
+            if ($cd === '' || ! isset($cdRefs[$cd]) || isset($vus[$cd])) {
+                continue;
+            }
+            $vus[$cd] = true;
+            $hab = trim((string) ($rec['habitat'] ?? ''));
+            $presentOm = false;
+            foreach ($om as $terr) {
+                if (strtoupper(trim((string) ($rec[strtolower($terr)] ?? ''))) === 'P') {
+                    $presentOm = true;
+                    break;
+                }
+            }
+            $chunk[] = [
+                'cd_ref' => (int) $cd,
+                'nom_valide' => $this->nonVide($this->utf8((string) ($rec['nom_valide'] ?? ''))),
+                'groupe1_inpn' => $this->nonVide($this->utf8((string) ($rec['group1_inpn'] ?? ''))),
+                'groupe2_inpn' => $this->nonVide($this->utf8((string) ($rec['group2_inpn'] ?? ''))),
+                'habitat_libelle' => $hab !== '' ? ($habitats[$hab] ?? null) : null,
+                'presence_fr' => $this->nonVide($this->utf8((string) ($rec['fr'] ?? ''))),
+                'present_om' => $presentOm,
+                'url_inpn' => $this->nonVide($this->utf8((string) ($rec['url_inpn'] ?? ''))),
+            ];
+            if (count($chunk) >= self::BATCH) {
+                DB::table('taxons_ref')->insert($chunk);
+                $nb += count($chunk);
+                $chunk = [];
+                if ($tick !== null) {
+                    $tick($nb);
+                }
+            }
+        }
+        if ($chunk !== []) {
+            DB::table('taxons_ref')->insert($chunk);
+            $nb += count($chunk);
+        }
+
+        $this->registrer('taxref', $nb, $this->versionTaxref($fichier));
+
+        return $nb;
+    }
+
+    /**
+     * HABITAT (code 1-8 TAXREF) → libellé français, lu dans habitats_note.csv
+     * (séparateur « ; », encodage Windows-1252 possible) du dossier TAXREF.
+     *
+     * @return array<string, string>
+     */
+    private function carteHabitats(): array
+    {
+        $carte = [];
+        foreach ($this->dossiersTaxref() as $dossier) {
+            $fichier = $dossier.'/habitats_note.csv';
+            if (! is_file($fichier)) {
+                continue;
+            }
+            $texte = file_get_contents($fichier);
+            if ($texte === false) {
+                continue;
+            }
+            foreach (preg_split('/\r\n|\r|\n/', $this->utf8($texte)) ?: [] as $i => $ligne) {
+                if ($i === 0 || trim($ligne) === '') {
+                    continue;
+                }
+                $champs = str_getcsv($ligne, ';');
+                if (count($champs) >= 2 && is_numeric(trim($champs[0]))) {
+                    $carte[trim($champs[0])] = trim($this->utf8($champs[1]));
+                }
+            }
+            break;
+        }
+
+        return $carte;
+    }
+
+    /** Dossier de la Base de Connaissance (config, repli <inpn.dir>/BDC_18). */
+    private function dossierBdc(): string
+    {
+        $dossier = (string) config('portail.inpn.bdc_dossier', '');
+        if ($dossier !== '' && is_dir($dossier)) {
+            return $dossier;
+        }
+        $repli = $this->dir().'/BDC_18';
+        if (is_dir($repli)) {
+            return $repli;
+        }
+
+        throw new RuntimeException('Dossier BDC introuvable (PORTAIL_BDC_DIR / portail.inpn.bdc_dossier).');
     }
 
     // ==================================================================

@@ -199,6 +199,168 @@ final class Especes
     }
 
     // ------------------------------------------------------------------
+    // Fiche espèce (statuts BDC v18 + référentiel TAXREF v18)
+    // ------------------------------------------------------------------
+
+    /**
+     * Requête des taxons ayant une fiche publique : présents dans taxons_ref,
+     * JAMAIS dans le référentiel de sensibilité v18 et jamais flaggés
+     * `confidentielle` dans znieff_especes. Une espèce sensible n'a donc
+     * aucune page dédiée (pas de localisation indirecte), où que ce soit.
+     */
+    public static function requeteVisibles(): Builder
+    {
+        return DB::table('taxons_ref as t')
+            ->whereNotExists(function ($q) {
+                $q->select(DB::raw(1))
+                    ->from('sensibilite_especes as s')
+                    ->whereColumn('s.cd_ref', 't.cd_ref');
+            })
+            ->whereNotExists(function ($q) {
+                $q->select(DB::raw(1))
+                    ->from('znieff_especes as e')
+                    ->whereColumn('e.cd_ref', 't.cd_ref')
+                    ->where('e.confidentielle', true);
+            });
+    }
+
+    /** Le taxon a-t-il une fiche publique (/espece/{cd_ref}) ? */
+    public static function especeVisible(int $cdRef): bool
+    {
+        return self::requeteVisibles()->where('t.cd_ref', $cdRef)->exists();
+    }
+
+    /**
+     * Nom cited / vernaculaire / groupe d'un taxon, repli depuis
+     * znieff_especes quand taxons_ref ne le couvre pas (hors périmètre
+     * TAXREF). Hors espèces confidentielles.
+     *
+     * @return array{nom: string, vern: ?string, groupe: string}|null
+     */
+    public static function nomDepuisZnieff(int $cdRef): ?array
+    {
+        $r = DB::table('znieff_especes')
+            ->where('cd_ref', $cdRef)
+            ->where('confidentielle', false)
+            ->orderBy('zonage_id')
+            ->first(['nom_cite', 'nom_vernaculaire', 'groupe_taxo']);
+        if ($r === null) {
+            return null;
+        }
+
+        return [
+            'nom' => self::textePur((string) $r->nom_cite),
+            'vern' => $r->nom_vernaculaire !== null && $r->nom_vernaculaire !== '' ? (string) $r->nom_vernaculaire : null,
+            'groupe' => self::groupe($r->groupe_taxo),
+        ];
+    }
+
+    /**
+     * Fiche TAXREF v18 d'un taxon (null si hors périmètre importé).
+     *
+     * @return array{cd_ref: int, nom_valide: ?string, groupe1: ?string, groupe2: ?string, habitat: ?string, presence_fr: ?string, present_om: bool, url_inpn: ?string}|null
+     */
+    public static function taxonRef(int $cdRef): ?array
+    {
+        $r = DB::table('taxons_ref')->where('cd_ref', $cdRef)->first();
+        if ($r === null) {
+            return null;
+        }
+
+        return [
+            'cd_ref' => (int) $r->cd_ref,
+            'nom_valide' => $r->nom_valide !== null && $r->nom_valide !== '' ? (string) $r->nom_valide : null,
+            'groupe1' => $r->groupe1_inpn !== null && $r->groupe1_inpn !== '' ? (string) $r->groupe1_inpn : null,
+            'groupe2' => $r->groupe2_inpn !== null && $r->groupe2_inpn !== '' ? (string) $r->groupe2_inpn : null,
+            'habitat' => $r->habitat_libelle !== null && $r->habitat_libelle !== '' ? (string) $r->habitat_libelle : null,
+            'presence_fr' => $r->presence_fr !== null && $r->presence_fr !== '' ? (string) $r->presence_fr : null,
+            'present_om' => (bool) $r->present_om,
+            'url_inpn' => $r->url_inpn !== null && $r->url_inpn !== '' ? (string) $r->url_inpn : null,
+        ];
+    }
+
+    /**
+     * Statuts de protection/réglementation (BDC v18) d'un taxon, groupés par
+     * type de regroupement INPN (Protection, Liste rouge, Directives
+     * européennes, Conventions…), triés par territoire puis type.
+     *
+     * @return array<int, array{regroupement: string, statuts: array<int, array{type: string, type_label: string, code: ?string, label: ?string, territoire: ?string, remarque: ?string, doc_url: ?string}>}>
+     */
+    public static function statutsEspece(int $cdRef): array
+    {
+        return DB::table('espece_statuts')
+            ->where('cd_ref', $cdRef)
+            ->orderBy('regroupement_type')
+            ->orderBy('lb_adm_tr')
+            ->orderBy('lb_type_statut')
+            ->get(['cd_type_statut', 'lb_type_statut', 'regroupement_type', 'code_statut', 'label_statut', 'rq_statut', 'lb_adm_tr', 'doc_url'])
+            ->groupBy('regroupement_type')
+            ->map(fn ($rows, $regroupement) => [
+                'regroupement' => (string) $regroupement,
+                'statuts' => $rows->map(fn ($r) => [
+                    'type' => (string) $r->cd_type_statut,
+                    'type_label' => (string) $r->lb_type_statut,
+                    'code' => $r->code_statut !== null && $r->code_statut !== '' ? (string) $r->code_statut : null,
+                    'label' => $r->label_statut !== null && $r->label_statut !== '' ? (string) $r->label_statut : null,
+                    'territoire' => $r->lb_adm_tr !== null && $r->lb_adm_tr !== '' ? (string) $r->lb_adm_tr : null,
+                    'remarque' => $r->rq_statut !== null && $r->rq_statut !== '' ? self::textePur((string) $r->rq_statut) : null,
+                    'doc_url' => $r->doc_url !== null && $r->doc_url !== '' ? (string) $r->doc_url : null,
+                ])->values()->all(),
+            ])
+            ->values()
+            ->all();
+    }
+
+    /**
+     * ZNIEFF du périmètre où le taxon est déterminant ET visible (hors
+     * confidentielles, hors sensibilité v18 des départements de la zone),
+     * paginées côté serveur, triées par nom de zone.
+     *
+     * @return array{total: int, page: int, derniere: int, items: array<int, array{id: string, nom: string, famille: string}>}
+     */
+    public static function zonagesEspecePagine(int $cdRef, int $page, int $parPage): array
+    {
+        $query = DB::table('znieff_especes as e')
+            ->join('zonages as z', 'z.id', '=', 'e.zonage_id')
+            ->where('e.cd_ref', $cdRef)
+            ->where('e.determinante', true)
+            ->where('e.confidentielle', false)
+            ->whereNotExists(function ($q) {
+                $q->select(DB::raw(1))
+                    ->from('sensibilite_especes as s')
+                    ->whereColumn('s.cd_ref', 'e.cd_ref')
+                    ->where(function ($w) {
+                        $w->whereNull('s.cd_dept') // pré-liste nationale
+                            ->orWhereIn('s.cd_dept', function ($q2) {
+                                $q2->select('c.dept')
+                                    ->from('zonage_communes as p')
+                                    ->join('communes as c', 'c.insee', '=', 'p.insee')
+                                    ->whereColumn('p.zonage_id', 'e.zonage_id');
+                            });
+                    });
+            });
+
+        $total = (int) (clone $query)->distinct()->count('z.id');
+        $derniere = max(1, (int) ceil($total / $parPage));
+        $page = min(max(1, $page), $derniere);
+
+        $items = (clone $query)
+            ->distinct()
+            ->orderBy('z.nom')
+            ->forPage($page, $parPage)
+            ->get(['z.id', 'z.nom', 'z.famille'])
+            ->map(fn ($r) => ['id' => (string) $r->id, 'nom' => (string) $r->nom, 'famille' => (string) $r->famille])
+            ->all();
+
+        return [
+            'total' => $total,
+            'page' => $page,
+            'derniere' => $derniere,
+            'items' => $items,
+        ];
+    }
+
+    // ------------------------------------------------------------------
     // Interne
     // ------------------------------------------------------------------
 

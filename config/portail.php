@@ -38,6 +38,12 @@ return [
         // « jamais d'espèce sensible affichée » côté requête (App\Support\Especes).
         'sensibilite_dossier' => env('PORTAIL_SENSIBILITE_DIR', base_path('data/inpn-data/SENSIBILITE_18')),
 
+        // Base de Connaissance des statuts (BDC v18, INPN) : statuts de
+        // protection/réglementation par taxon et par territoire (bdc_18_01.csv,
+        // ~448 k lignes lues en flux, filtrées aux cd_ref du périmètre).
+        // Les lignes SENSIBILITE n'y sont jamais importées (filtre, pas affichage).
+        'bdc_dossier' => env('PORTAIL_BDC_DIR', base_path('data/inpn-data/BDC_18')),
+
         // Versions des référentiels, affichées en pied de page et sur la page
         // Données & méthodologie. Date de la base diffusée par l'INPN.
         'versions' => [
@@ -47,6 +53,7 @@ return [
             'adminexpress' => 'contours communaux AdminExpress (IGN) — édition 2025',
             'taxref' => 'référentiel taxonomique TAXREF (MNHN)',
             'sensibilite' => 'référentiel de sensibilité des données SINP (INPN) — v18, août 2025',
+            'bdc' => 'base de connaissance des statuts BDC (INPN) — v18, juillet 2025',
         ],
     ],
 

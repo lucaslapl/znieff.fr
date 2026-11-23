@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Support\Chapeaux;
 use App\Support\Especes;
+use App\Support\Habitats;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -47,6 +48,9 @@ class EspeceController extends Controller
         $page = max(1, (int) $request->query('page', '1'));
         $zonages = Especes::zonagesEspecePagine($cdRef, $page, self::PAR_PAGE);
         $statuts = Especes::statutsEspece($cdRef);
+        // Habitats HABREF où le taxon est espèce caractéristique (paginé serveur).
+        $pageHabitats = max(1, (int) $request->query('page_habitats', '1'));
+        $habitats = Habitats::habitatsEspecePagine($cdRef, $pageHabitats, self::PAR_PAGE);
 
         $titre = $vern !== null ? sprintf('%s (%s)', $vern, $nom) : $nom;
         $meta = sprintf(
@@ -77,6 +81,9 @@ class EspeceController extends Controller
             'zonages' => $zonages['items'],
             'nbZonages' => $zonages['total'],
             'pagination' => $this->paginationFiche('espece.show', ['cd_ref' => $cdRef], $zonages['page'], self::PAR_PAGE, $zonages['total']),
+            'habitats' => $habitats['items'],
+            'nbHabitats' => $habitats['total'],
+            'paginationHabitats' => $this->paginationFiche('espece.show', ['cd_ref' => $cdRef], $habitats['page'], self::PAR_PAGE, $habitats['total'], 'page_habitats'),
         ]);
     }
 }

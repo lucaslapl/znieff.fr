@@ -6,6 +6,7 @@ use App\Http\Controllers\CommuneController;
 use App\Http\Controllers\DonneesController;
 use App\Http\Controllers\EspeceController;
 use App\Http\Controllers\GeologieController;
+use App\Http\Controllers\HabitatController;
 use App\Http\Controllers\HomeController;
 use App\Http\Controllers\NaturaSiteController;
 use App\Http\Controllers\RechercheController;
@@ -41,6 +42,7 @@ Route::get('/znieff', [ZonageController::class, 'index'])->name('znieff.index');
 Route::get('/natura', [NaturaSiteController::class, 'index'])->name('natura.index');
 Route::get('/ap', [AireProtegeeController::class, 'index'])->name('ap.index');
 Route::get('/geologie', [GeologieController::class, 'index'])->name('geologie.index');
+Route::get('/habitats', [HabitatController::class, 'index'])->name('habitats.index');
 
 // Recherche transverse (searchbar de l'accueil) : redirection vers la
 // fiche en cas de correspondance exacte, sinon résultats par section.
@@ -134,3 +136,9 @@ Route::get('/espece/{cd_ref}', [EspeceController::class, 'show'])
 Route::get('/geologie/{id}', [GeologieController::class, 'show'])
     ->where('id', '[A-Za-z0-9]{5,10}')
     ->name('geologie.show');
+
+// -- Habitats (HABREF v7.0, MNHN) : /habitat/{cd_hab} (unité importée pour le
+//    périmètre — HIC des FSD Natura 2000 + correspondances EUNIS/CORINE).
+Route::get('/habitat/{cd_hab}', [HabitatController::class, 'show'])
+    ->where('cd_hab', '[0-9]{1,8}')
+    ->name('habitat.show');

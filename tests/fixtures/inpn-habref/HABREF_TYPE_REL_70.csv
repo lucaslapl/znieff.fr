@@ -1,0 +1,5 @@
+CD_TYPE_REL;LB_TYPE_REL;LB_REL;LB_DEFINITION;CORRESP_HAB;CORRESP_ESP;CORRESP_SYN;DATE_CREA;DATE_MODIF
+19;Esp. caract.;Espèce caractéristique;Taxon caractéristique.;false;true;false;2020-01-01 00:00:00;2020-01-01 00:00:00
+20;Esp. diagn.;Espèce diagnostique;Taxon diagnostique.;false;true;false;2020-01-01 00:00:00;2020-01-01 00:00:00
+26;Esp. pr�s.;Espèce présente;Taxon présent.;false;true;false;2020-01-01 00:00:00;2020-01-01 00:00:00
+39;Esp. const.;Espèce constante;Taxon constant.;false;true;false;2020-01-01 00:00:00;2020-01-01 00:00:00

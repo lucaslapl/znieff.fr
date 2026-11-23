@@ -10,6 +10,7 @@ use App\Models\Zonage;
 use App\Support\Especes;
 use App\Support\Inpg;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Sitemap exhaustif (itération e) : toutes les fiches du portail y
@@ -43,7 +44,7 @@ class SitemapController extends Controller
         // Colonnes du référentiel datées (table referentiel_imports,
         // déjà lue par le pied de page) ; null = première importation pas encore tracée.
         $this->lastmod = [];
-        foreach (['znieff', 'natura', 'aires', 'adminexpress', 'bdc', 'inpg'] as $source) {
+        foreach (['znieff', 'natura', 'aires', 'adminexpress', 'bdc', 'inpg', 'habref'] as $source) {
             $ligne = ReferentielImport::query()->where('source', $source)->first(['importe_le']);
             $this->lastmod[$source] = $ligne?->importe_le?->toDateString();
         }
@@ -67,6 +68,8 @@ class SitemapController extends Controller
             'especes' => (int) ceil(Especes::requeteVisibles()->count() / self::PAR_LOT),
             // Sites INPG publics uniquement (niv_diffusion = 2, filtre Inpg).
             'geologie' => (int) ceil(Inpg::sitesVisibles()->count() / self::PAR_LOT),
+            // Unités HABREF importées pour le périmètre.
+            'habitats' => (int) ceil(DB::table('habref_habitats')->count() / self::PAR_LOT),
         ];
 
         $lignes = '';
@@ -104,6 +107,7 @@ class SitemapController extends Controller
             'ap' => 'aires',
             'especes' => 'bdc',
             'geologie' => 'inpg',
+            'habitats' => 'habref',
             default => null,
         };
         $lastmod = $source !== null ? ($this->lastmod[$source] ?? null) : null;
@@ -177,6 +181,10 @@ class SitemapController extends Controller
             'geologie' => Inpg::sitesVisibles()->orderBy('identifiant_metier')
                 ->forPage($lot, self::PAR_LOT)->pluck('identifiant_metier')
                 ->map(fn ($im): array => ['url' => route('geologie.show', (string) $im)])
+                ->all(),
+            'habitats' => DB::table('habref_habitats')->orderBy('cd_hab')
+                ->forPage($lot, self::PAR_LOT)->pluck('cd_hab')
+                ->map(fn ($cd): array => ['url' => route('habitat.show', (int) $cd)])
                 ->all(),
             default => null,
         };

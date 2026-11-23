@@ -58,6 +58,14 @@ return [
         // route filtrée /znieff/{id}/fiche.pdf (jamais d'URL statique).
         'pdf_dossier' => env('PORTAIL_PDF_ZNIEFF_DIR', base_path('data/inpn-data/PDF ZNIEFF')),
 
+        // HABREF v7.0 (MNHN) : référentiel national des habitats — HABREF_70.csv
+        // (toutes typologies), HABREF_CORRESP_HAB_70.csv (correspondances),
+        // HABREF_CORRESP_TAXON_70.csv (espèces caractéristiques), HABREF_TERR_70.csv
+        // (territoires), HABREF_TYPE_REL_70.csv (libellés des relations).
+        // Le dossier est versionné (HABREF_07) : repli sur le plus récent glob
+        // HABREF_* sous <inpn.dir>.
+        'habref_dossier' => env('PORTAIL_HABREF_DIR', base_path('data/inpn-data/HABREF_07')),
+
         // Versions des référentiels, affichées en pied de page et sur la page
         // Données & méthodologie. Date de la base diffusée par l'INPN.
         'versions' => [
@@ -70,6 +78,7 @@ return [
             'bdc' => 'base de connaissance des statuts BDC (INPN) — v18, juillet 2025',
             'inpg' => 'inventaire national du patrimoine géologique INPG (INPN/MNHN) — juillet 2025',
             'pdf' => 'fiches PDF des ZNIEFF (INPN/MNHN) — diffusion INPN',
+            'habref' => 'référentiel national des habitats HABREF (MNHN) — v7.0, août 2025',
         ],
     ],
 
@@ -90,6 +99,7 @@ return [
         // SINP : point d'entrée des demandes d'accès aux données sensibles
         // (fiches PDF des zones à espèces sensibles, cf. route znieff.pdf).
         'sinp' => 'https://sinp.naturefrance.fr/',
+        'habitat_inpn' => 'https://inpn.mnhn.fr/habitat/', // + cd_hab HABREF
     ],
 
     /*

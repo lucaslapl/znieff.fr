@@ -2289,6 +2289,313 @@ class InpnImportService
     }
 
     // ==================================================================
+    // HABREF v7.0 (MNHN) — référentiel national des habitats
+    // ==================================================================
+
+    /** Typologies retenues : 8 = HIC (Natura 2000), 7 = EUNIS, 22 = CORINE Biotopes. */
+    private const HABREF_TYPOS = [7, 8, 22];
+
+    /** Relations taxon-habitat retenues (caractéristiques au sens large HABREF). */
+    private const HABREF_TYPES_TAXONS = [19, 20, 26, 29, 32, 39];
+
+    /**
+     * HABREF v7.0 (MNHN) pour le périmètre : unités HIC (typo 8) citées par
+     * les FSD Natura 2000 du périmètre, leurs correspondances directes
+     * (EUNIS typo 7, CORINE typo 22) et leurs parents hiérarchiques ;
+     * correspondances entre unités ; espèces caractéristiques (types
+     * 19/20/26/29/32/39) avec cd_ref résolu via TAXREF v18 ; territoires de
+     * présence (statut P). Tables purement attributaires.
+     *
+     * Le filtre de sensibilité des taxons n'est PAS posé ici : il est posé
+     * côté requête à la lecture (App\Support\Habitats, comme App\Support\Especes).
+     *
+     * @param  callable(int): void  $tick
+     * @return array{unites: int, corresp: int, taxons: int, taxons_sans_cdref: int, hic: int}
+     */
+    public function importHabref(?string $dept = null, ?callable $tick = null): array
+    {
+        $dir = $this->dossierHabref();
+        $fHab = $this->fichierHabref($dir, 'HABREF_[0-9]*.csv');
+        $fCorrespHab = $this->fichierHabref($dir, 'HABREF_CORRESP_HAB_[0-9]*.csv');
+        $fCorrespTaxon = $this->fichierHabref($dir, 'HABREF_CORRESP_TAXON_[0-9]*.csv');
+        $fTerr = $this->fichierHabref($dir, 'HABREF_TERR_[0-9]*.csv');
+        $fTypeRel = $this->fichierHabref($dir, 'HABREF_TYPE_REL*.csv');
+
+        // 1. Périmètre : cd_hab (unités HIC) cités par les FSD Natura 2000 du
+        //    périmètre (département via natura_communes → communes).
+        $requete = DB::table('natura_habitats')->whereNotNull('cd_hab')->distinct();
+        if ($dept !== null) {
+            $requete->whereIn('site_code', function ($q) use ($dept) {
+                $q->select('p.site_code')
+                    ->from('natura_communes as p')
+                    ->join('communes as c', 'c.insee', '=', 'p.insee')
+                    ->where('c.dept', $dept);
+            });
+        }
+        /** @var array<int, int> $cdHabsHic */
+        $cdHabsHic = $requete->pluck('cd_hab')->map(fn ($v) => (int) $v)->filter(fn ($v) => $v > 0)->all();
+        if ($cdHabsHic === []) {
+            throw new RuntimeException('Aucun cd_hab dans natura_habitats pour ce périmètre : lancez d\'abord --source=natura.');
+        }
+
+        // 2. Index des unités des typologies retenues (HABREF_70.csv).
+        /** @var array<int, array<string, string>> $unites */
+        $unites = [];
+        foreach ($this->csv->iterate($fHab) as $rec) {
+            $typo = (int) ($rec['cd_typo'] ?? 0);
+            if (! in_array($typo, self::HABREF_TYPOS, true)) {
+                continue;
+            }
+            $cd = (int) ($rec['cd_hab'] ?? 0);
+            if ($cd > 0) {
+                $unites[$cd] = $rec;
+            }
+        }
+
+        // 3. Correspondances entre unités retenues (index direct + inverse).
+        $corresp = [];    // entre => [sortie => type]
+        $correspInv = []; // sortie => [entre => type]
+        foreach ($this->csv->iterate($fCorrespHab) as $rec) {
+            $e = (int) ($rec['cd_hab_entre'] ?? 0);
+            $s = (int) ($rec['cd_hab_sortie'] ?? 0);
+            $t = (int) ($rec['cd_type_relation'] ?? 0);
+            if ($e <= 0 || $s <= 0) {
+                continue;
+            }
+            $corresp[$e][$s] = $t;
+            $correspInv[$s][$e] = $t;
+        }
+
+        // Unités à importer : HIC du périmètre + correspondances directes +
+        // parents hiérarchiques (récursif, dans les typologies retenues).
+        $aImporter = array_fill_keys($cdHabsHic, true);
+        foreach ($cdHabsHic as $cd) {
+            foreach (($corresp[$cd] ?? []) as $s => $t) {
+                if (isset($unites[$s])) {
+                    $aImporter[$s] = true;
+                }
+            }
+            foreach (($correspInv[$cd] ?? []) as $e => $t) {
+                if (isset($unites[$e])) {
+                    $aImporter[$e] = true;
+                }
+            }
+        }
+        $pile = array_keys($aImporter);
+        while ($pile !== []) {
+            $cd = array_pop($pile);
+            $sup = (int) ($unites[$cd]['cd_hab_sup'] ?? 0);
+            if ($sup > 0 && isset($unites[$sup]) && ! isset($aImporter[$sup])) {
+                $aImporter[$sup] = true;
+                $pile[] = $sup;
+            }
+        }
+
+        // 4. Territoires de présence (statut P) des unités à importer.
+        $territoires = []; // cd_hab => [CD_SIG_TERR]
+        foreach ($this->csv->iterate($fTerr) as $rec) {
+            $cd = (int) ($rec['cd_hab'] ?? 0);
+            $statut = strtoupper(trim((string) ($rec['cd_statut_presence'] ?? '')));
+            if ($cd > 0 && isset($aImporter[$cd]) && $statut === 'P') {
+                $territoires[$cd][] = trim($this->utf8((string) ($rec['cd_sig_terr'] ?? '')));
+            }
+        }
+
+        // 5. Écriture des unités (rechargement intégral, idempotent).
+        DB::table('habref_taxons')->delete();
+        DB::table('habref_corresp')->delete();
+        DB::table('habref_habitats')->delete();
+
+        $chunk = [];
+        $nbUnites = 0;
+        foreach (array_keys($aImporter) as $cd) {
+            $u = $unites[$cd];
+            $chunk[] = [
+                'cd_hab' => $cd,
+                'cd_typo' => (int) ($u['cd_typo'] ?? 0),
+                'lb_code' => $this->nonVide($this->utf8((string) ($u['lb_code'] ?? ''))),
+                'nom_fr' => $this->utf8((string) ($u['lb_hab_fr'] ?? '')),
+                'nom_fr_complet' => $this->nonVide($this->utf8((string) ($u['lb_hab_fr_complet'] ?? ''))),
+                'nom_en' => $this->nonVide($this->utf8((string) ($u['lb_hab_en'] ?? ''))),
+                'niveau' => $this->intOuNull($u['niveau'] ?? null),
+                'cd_hab_sup' => $this->intOuNull($u['cd_hab_sup'] ?? null),
+                'path' => $this->nonVide((string) ($u['path_cd_hab'] ?? '')),
+                'description' => $this->nonVide($this->utf8((string) ($u['lb_description'] ?? ''))),
+                'territoires' => isset($territoires[$cd]) ? implode(',', array_unique($territoires[$cd])) : null,
+                'france' => strtolower(trim((string) ($u['france'] ?? 'true'))) === 'true',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ];
+            if (count($chunk) >= self::BATCH) {
+                DB::table('habref_habitats')->insert($chunk);
+                $nbUnites += count($chunk);
+                $chunk = [];
+            }
+        }
+        if ($chunk !== []) {
+            DB::table('habref_habitats')->insert($chunk);
+            $nbUnites += count($chunk);
+        }
+
+        // 6. Correspondances retenues (les deux côtés importés).
+        $chunk = [];
+        $nbCorresp = 0;
+        foreach ($corresp as $e => $sorties) {
+            if (! isset($aImporter[$e])) {
+                continue;
+            }
+            foreach ($sorties as $s => $t) {
+                if (! isset($aImporter[$s])) {
+                    continue;
+                }
+                $chunk[] = [
+                    'cd_hab_entre' => $e,
+                    'cd_hab_sortie' => $s,
+                    'cd_type_relation' => $t > 0 ? $t : null,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ];
+                if (count($chunk) >= self::BATCH) {
+                    DB::table('habref_corresp')->insert($chunk);
+                    $nbCorresp += count($chunk);
+                    $chunk = [];
+                }
+            }
+        }
+        if ($chunk !== []) {
+            DB::table('habref_corresp')->insert($chunk);
+            $nbCorresp += count($chunk);
+        }
+
+        // 7. Libellés des types de relation taxon-habitat.
+        $typesRel = []; // cd_type_rel => libellé
+        foreach ($this->csv->iterate($fTypeRel) as $rec) {
+            $t = (int) ($rec['cd_type_rel'] ?? 0);
+            if ($t > 0) {
+                $typesRel[$t] = $this->nonVide($this->utf8((string) ($rec['lb_rel'] ?? ''))) ?? (string) $t;
+            }
+        }
+
+        // 8. Espèces caractéristiques des unités importées, cd_ref résolu via
+        //    TAXREF v18 (une passe filtrée sur les cd_nom rencontrés).
+        $lignesTaxons = [];
+        $cdNoms = [];
+        foreach ($this->csv->iterate($fCorrespTaxon) as $rec) {
+            $cd = (int) ($rec['cd_hab_entre'] ?? 0);
+            $type = (int) ($rec['cd_type_relation'] ?? 0);
+            $cdNom = (int) ($rec['cd_nom'] ?? 0);
+            if (! isset($aImporter[$cd]) || ! in_array($type, self::HABREF_TYPES_TAXONS, true) || $cdNom <= 0) {
+                continue;
+            }
+            $cdNoms[$cdNom] = true;
+            $lignesTaxons[] = [
+                'cd_hab' => $cd,
+                'cd_nom' => $cdNom,
+                'nom_cite' => $this->nonVide($this->utf8((string) ($rec['nom_cite'] ?? ''))),
+                'cd_type_relation' => $type,
+                'type_libelle' => $typesRel[$type] ?? (string) $type,
+            ];
+        }
+        $cdRefParCdNom = $this->resoudreCdRefTaxref(array_keys($cdNoms));
+
+        $chunk = [];
+        $nbTaxons = 0;
+        $sansCdRef = 0;
+        foreach ($lignesTaxons as $l) {
+            $cdRef = $cdRefParCdNom[$l['cd_nom']] ?? null;
+            if ($cdRef === null) {
+                $sansCdRef++;
+            }
+            $chunk[] = $l + [
+                'cd_ref' => $cdRef,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ];
+            if (count($chunk) >= self::BATCH) {
+                DB::table('habref_taxons')->insert($chunk);
+                $nbTaxons += count($chunk);
+                $chunk = [];
+                if ($tick !== null) {
+                    $tick($nbTaxons);
+                }
+            }
+        }
+        if ($chunk !== []) {
+            DB::table('habref_taxons')->insert($chunk);
+            $nbTaxons += count($chunk);
+        }
+
+        $this->registrer('habref', $nbUnites, (string) config('portail.inpn.versions.habref'));
+
+        return [
+            'hic' => count($cdHabsHic),
+            'unites' => $nbUnites,
+            'corresp' => $nbCorresp,
+            'taxons' => $nbTaxons,
+            'taxons_sans_cdref' => $sansCdRef,
+        ];
+    }
+
+    /**
+     * Premier fichier correspondant au motif dans le dossier HABREF.
+     */
+    private function fichierHabref(string $dir, string $motif): string
+    {
+        foreach (glob($dir.'/'.$motif, GLOB_NOSORT) ?: [] as $f) {
+            if (is_file($f)) {
+                return $f;
+            }
+        }
+
+        throw new RuntimeException("Fichier HABREF introuvable : {$dir}/{$motif}");
+    }
+
+    /**
+     * Résout cd_nom → cd_ref via TAXREF v18 (une passe filtrée sur les cd_nom
+     * demandés). Retourne [] si TAXREF est indisponible (les taxons seront
+     * alors sans cd_ref, donc exclus de l'affichage filtré — conservateur).
+     *
+     * @param  array<int, int>  $cdNoms
+     * @return array<int, int> cd_nom => cd_ref
+     */
+    private function resoudreCdRefTaxref(array $cdNoms): array
+    {
+        $fichier = $this->fichierTaxrefComplet();
+        if ($fichier === null || $cdNoms === []) {
+            return [];
+        }
+        $demandes = array_fill_keys($cdNoms, true);
+        $map = [];
+        foreach ($this->csv->iterate($fichier, "\t") as $rec) {
+            $cdNom = trim((string) ($rec['cd_nom'] ?? ''));
+            if ($cdNom !== '' && isset($demandes[$cdNom]) && ! isset($map[(int) $cdNom])) {
+                $cdRef = trim((string) ($rec['cd_ref'] ?? ''));
+                if ($cdRef !== '') {
+                    $map[(int) $cdNom] = (int) $cdRef;
+                }
+            }
+        }
+
+        return $map;
+    }
+
+    /** Dossier HABREF (config, repli sur le plus récent glob HABREF_* sous <inpn.dir>). */
+    private function dossierHabref(): string
+    {
+        $dossier = (string) config('portail.inpn.habref_dossier', '');
+        if ($dossier !== '' && is_dir($dossier)) {
+            return $dossier;
+        }
+        foreach (glob($this->dir().'/HABREF_*', GLOB_NOSORT) ?: [] as $d) {
+            if (is_dir($d)) {
+                return $d;
+            }
+        }
+
+        throw new RuntimeException('Dossier HABREF introuvable (PORTAIL_HABREF_DIR / portail.inpn.habref_dossier).');
+    }
+
+    // ==================================================================
     // Fiches PDF des ZNIEFF (INPN/MNHN)
     // ==================================================================
 

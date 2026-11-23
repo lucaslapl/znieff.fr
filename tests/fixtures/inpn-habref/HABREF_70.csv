@@ -1,0 +1,7 @@
+CD_HAB;FG_VALIDITE;CD_TYPO;LB_CODE;LB_HAB_FR;LB_HAB_FR_COMPLET;LB_HAB_EN;LB_AUTEUR;NIVEAU;LB_NIVEAU;CD_HAB_SUP;PATH_CD_HAB;FRANCE;LB_DESCRIPTION
+197;NR;8;2;Dunes côtières;;Coastal dunes;;1;Niveau 1;;/197;true;Les dunes côtières sableuses.
+831;NR;8;21;Dunes mobiles du cordon littoral;;Shifting dunes;;2;Niveau 2;197;/197/831;true;Dunes mobiles du cordon littoral.
+2682;NR;8;2110;Dunes mobiles du cordon littoral à Ammophila arenaria;;Embryonic shifting dunes;;3;Niveau 3;831;/197/831/2682;true;Formations of the coast representing the first stages of dune construction.
+8888;NR;7;B1;Dunes côtières et plages de sable;;Coastal dunes and sandy shores;;1;Niveau 1;;/8888;true;Dunes cotières et plages de sable.
+9999;NR;7;B1.1;Dunes mobiles embryonnaires;;Embryonic shifting dunes;;2;Niveau 2;8888;/8888/9999;true;Dunes mobiles embryonnaires.
+7777;NR;22;16.21;Plages de sable sans végétation;;Sand beaches without vegetation;;2;Niveau 2;;;true;Plages de sable.

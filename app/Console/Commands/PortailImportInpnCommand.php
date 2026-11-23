@@ -23,7 +23,7 @@ use Illuminate\Support\Facades\DB;
 class PortailImportInpnCommand extends Command
 {
     protected $signature = 'portail:import-inpn
-        {--source=all : znieff|natura|aires|sensibilite|bdc|inpg|pdf|all}
+        {--source=all : znieff|natura|aires|sensibilite|bdc|inpg|pdf|habref|all}
         {--dept= : un seul département (mode test, ex. 27) — périmètre de table destructif}
         {--skip-geojson : ne pas (ré)générer les surcouches GeoJSON}';
 
@@ -39,7 +39,7 @@ class PortailImportInpnCommand extends Command
         $dept = $this->option('dept') !== null ? (string) $this->option('dept') : null;
         $avecGeojson = ! $this->option('skip-geojson');
 
-        if (! in_array($source, ['znieff', 'natura', 'aires', 'sensibilite', 'bdc', 'inpg', 'pdf', 'all'], true)) {
+        if (! in_array($source, ['znieff', 'natura', 'aires', 'sensibilite', 'bdc', 'inpg', 'pdf', 'habref', 'all'], true)) {
             $this->error("Source inconnue : {$source} (znieff|natura|aires|sensibilite|bdc|inpg|pdf|all)");
 
             return self::FAILURE;
@@ -111,6 +111,14 @@ class PortailImportInpnCommand extends Command
             $this->info('Fiches PDF ZNIEFF (INPN)…');
             $retour = $inpn->importPdf($dept, $progression);
             $this->afficher('pdf', $retour, ['zones', 'pdf', 'octets', 'manquants']);
+        }
+
+        // HABREF v7.0 : unités HIC du périmètre + correspondances EUNIS/CORINE
+        // + espèces caractéristiques — à relancer après natura (périmètre).
+        if (in_array($source, ['habref', 'all'], true)) {
+            $this->info('HABREF v7.0 — référentiel habitats (MNHN)…');
+            $retour = $inpn->importHabref($dept, $progression);
+            $this->afficher('habref', $retour, ['hic', 'unites', 'corresp', 'taxons', 'taxons_sans_cdref']);
         }
 
         $this->info('Import INPN terminé.');

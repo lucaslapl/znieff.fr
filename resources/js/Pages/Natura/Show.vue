@@ -119,9 +119,15 @@ const evalLabel = (l) => ({ A: 'excellente', B: 'bonne', C: 'significative', D: 
                 <tbody>
                     <tr v-for="h in habitats" :key="h.cd_ue + '|' + (h.cd_hab ?? '')">
                         <td>{{ h.cd_ue }}</td>
-                        <td>{{ h.nom ?? '—' }}</td>
+                        <td>
+                            <Link v-if="h.cd_hab" :href="`/habitat/${h.cd_hab}`">{{ h.nom ?? '—' }}</Link>
+                            <template v-else>{{ h.nom ?? '—' }}</template>
+                        </td>
                         <td><span v-if="h.prioritaire" class="badge prio">prioritaire</span><span v-else class="hint">—</span></td>
-                        <td>{{ h.cd_hab ?? '—' }}</td>
+                        <td>
+                            <Link v-if="h.cd_hab" :href="`/habitat/${h.cd_hab}`">{{ h.cd_hab }}</Link>
+                            <template v-else>—</template>
+                        </td>
                         <td :title="repLabel(h.representativite) ?? ''">{{ h.representativite ?? '—' }}</td>
                         <td :title="conLabel(h.conservation) ?? ''">{{ h.conservation ?? '—' }}</td>
                         <td :title="evalLabel(h.evaluation_globale) ?? ''">{{ h.evaluation_globale ?? '—' }}</td>

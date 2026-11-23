@@ -28,6 +28,9 @@ class HabitatFicheTest extends TestCase
         config([
             'portail.inpn.habref_dossier' => base_path('tests/fixtures/inpn-habref'),
             'portail.inpn.taxref_dossier' => base_path('tests/fixtures/inpn-taxref'),
+            // importBdc : sans cette clé, dossierBdc retombe sur <inpn.dir>/BDC_18
+            // (absent en CI — les données INPN brutes ne sont pas dans le dépôt).
+            'portail.inpn.bdc_dossier' => base_path('tests/fixtures/inpn-bdc'),
         ]);
 
         $service = app(InpnImportService::class);

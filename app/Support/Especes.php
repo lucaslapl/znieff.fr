@@ -10,9 +10,11 @@ use Illuminate\Support\Facades\DB;
  * convention AGENTS.md : jamais de liste complète envoyée au client).
  *
  * RÈGLE ABSOLUE (politique INPN/MNHN, identique à l'Observatoire des ABC) :
- * les espèces ZNIEFF marquées `confidentielle` ne sont JAMAIS affichées ni
- * comptées. Le filtre `where('confidentielle', false)` est posé ICI, côté
- * requête — pas côté affichage — et s'applique aux listes comme aux
+ * les espèces ZNIEFF marquées `confidentielle` (flag REF_ESPECE) OU présentes
+ * dans le référentiel de sensibilité SINP v18 (`sensibilite_especes`, pour
+ * le département de la zone affichée — pré-liste nationale comprise) ne
+ * sont JAMAIS affichées ni comptées. Les filtres sont posés ICI, côté
+ * requête — pas côté affichage — et s'appliquent aux listes comme aux
  * compteurs. Toute lecture de `znieff_especes` du site passe par cette
  * classe.
  *
@@ -33,7 +35,7 @@ final class Especes
      */
     public static function especesZonagePagine(string $zonageId, int $page, int $parPage, ?string $groupe = null): array
     {
-        $query = self::znieffVisibles()
+        $query = self::znieffVisibles(self::deptsZonage($zonageId))
             ->where('zonage_id', $zonageId)
             ->where('determinante', true)
             ->when($groupe !== null && $groupe !== '' && $groupe !== 'Tous', function ($q) use ($groupe) {
@@ -82,7 +84,7 @@ final class Especes
      */
     public static function groupesZonage(string $zonageId): array
     {
-        return self::znieffVisibles()
+        return self::znieffVisibles(self::deptsZonage($zonageId))
             ->where('zonage_id', $zonageId)
             ->where('determinante', true)
             ->groupBy('groupe_taxo')
@@ -158,7 +160,10 @@ final class Especes
      */
     public static function compteursCommune(string $insee): array
     {
-        $znieff = self::znieffVisibles()
+        $dept = DB::table('communes')->where('insee', $insee)->value('dept');
+        $depts = is_string($dept) && $dept !== '' ? [$dept] : null;
+
+        $znieff = self::znieffVisibles($depts)
             ->join('zonage_communes as p', 'p.zonage_id', '=', 'znieff_especes.zonage_id')
             ->where('p.insee', $insee)
             ->where('znieff_especes.determinante', true)
@@ -198,13 +203,52 @@ final class Especes
     // ------------------------------------------------------------------
 
     /**
-     * Requête de base sur les espèces ZNIEFF visibles : le filtre
-     * `confidentielle = false` est posé ici, une seule fois, et repris par
-     * toutes les méthodes publiques (listes et compteurs).
+     * Requête de base sur les espèces ZNIEFF visibles : les filtres absolus
+     * sont posés ici, une seule fois, et repris par toutes les méthodes
+     * publiques (listes et compteurs) :
+     *  - `confidentielle = false` (flag REF_ESPECE) ;
+     *  - aucune ligne du référentiel de sensibilité SINP v18 pour ce taxon
+     *    dans les départements concernés ($depts : cd_dept de la zone, ou
+     *    pré-liste nationale cd_dept null). $depts = null → conservateur,
+     *    toute sensibilité enregistrée masque l'espèce.
+     *
+     * @param  array<int, string>|null  $depts  départements de la zone affichée
      */
-    private static function znieffVisibles(): Builder
+    private static function znieffVisibles(?array $depts = null): Builder
     {
-        return DB::table('znieff_especes')->where('confidentielle', false);
+        return DB::table('znieff_especes')
+            ->where('confidentielle', false)
+            ->whereNotExists(function ($q) use ($depts) {
+                $q->select(DB::raw(1))
+                    ->from('sensibilite_especes as s')
+                    ->whereColumn('s.cd_ref', 'znieff_especes.cd_ref')
+                    ->where(function ($w) use ($depts) {
+                        $w->whereNull('s.cd_dept'); // pré-liste nationale
+                        if ($depts !== null) {
+                            $w->orWhereIn('s.cd_dept', $depts);
+                        }
+                    });
+            });
+    }
+
+    /**
+     * Départements des communes traversées par une ZNIEFF (pivot précalculé
+     * zonage_communes → communes) : la sensibilité d'un taxon s'apprécie au
+     * département de la zone affichée. Zone sans commune connue : null
+     * (filtre conservateur, toute sensibilité s'applique).
+     *
+     * @return array<int, string>|null
+     */
+    private static function deptsZonage(string $zonageId): ?array
+    {
+        $depts = DB::table('zonage_communes as p')
+            ->join('communes as c', 'c.insee', '=', 'p.insee')
+            ->where('p.zonage_id', $zonageId)
+            ->distinct()
+            ->pluck('c.dept')
+            ->all();
+
+        return $depts === [] ? null : $depts;
     }
 
     /**

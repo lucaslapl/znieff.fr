@@ -21,14 +21,22 @@ return [
         'admin_express_dir' => env('PORTAIL_ADMIN_EXPRESS_DIR', base_path('data/inpn-data/admin-express')),
 
         // TAXREF (MNHN) : référentiel taxonomique — distribution séparée,
-        // conditions INPN à accepter (v18 : ~353 Mo complet, TAXVERNv18
+        // conditions INPN à accepter (v18 : ~670 Mo complet, TAXVERNv18
         // dédicacé aux noms vernaculaires ~9,7 Mo, fr + eng mélangés).
         // PORTAIL_TAXREF_FICHIER (fichier explicite) l'emporte ; sinon le
-        // pilote cherche dans PORTAIL_TAXREF_DIR ( défaut : data/inpn-data/
-        // taxref) dans l'ordre : TAXVERNv*.txt → TAXREFv*.txt → TAXREF.txt.
+        // pilote cherche dans PORTAIL_TAXREF_DIR (défaut : data/inpn-data/
+        // TAXREF — majuscule, le conteneur Linux est case-sensitive ; en
+        // repli <inpn.dir>/TAXREF puis <inpn.dir>/taxref) dans l'ordre :
+        // TAXVERNv*.txt → TAXREFv*.txt → TAXREF.txt.
         // Aucun fichier trouvé : nom_vernaculaire reste null, latin seul.
         'taxref_fichier' => env('PORTAIL_TAXREF_FICHIER', ''),
-        'taxref_dossier' => env('PORTAIL_TAXREF_DIR', base_path('data/inpn-data/taxref')),
+        'taxref_dossier' => env('PORTAIL_TAXREF_DIR', base_path('data/inpn-data/TAXREF')),
+
+        // Référentiel de sensibilité SINP v18 (INPN) : RefSensibilite_18.csv
+        // (taxon × département × niveau de sensibilité) + RefSensibiliteMtd.csv
+        // (méthodes / crédit des listes régionales). Sert à renforcer le filtre
+        // « jamais d'espèce sensible affichée » côté requête (App\Support\Especes).
+        'sensibilite_dossier' => env('PORTAIL_SENSIBILITE_DIR', base_path('data/inpn-data/SENSIBILITE_18')),
 
         // Versions des référentiels, affichées en pied de page et sur la page
         // Données & méthodologie. Date de la base diffusée par l'INPN.
@@ -38,6 +46,7 @@ return [
             'aires' => 'inventaire des aires protégées APA-INPN — juillet 2025',
             'adminexpress' => 'contours communaux AdminExpress (IGN) — édition 2025',
             'taxref' => 'référentiel taxonomique TAXREF (MNHN)',
+            'sensibilite' => 'référentiel de sensibilité des données SINP (INPN) — v18, août 2025',
         ],
     ],
 

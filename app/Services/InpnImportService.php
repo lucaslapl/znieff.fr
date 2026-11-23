@@ -282,7 +282,10 @@ class InpnImportService
 
     /**
      * Fichier TAXREF utilisé : PORTAIL_TAXREF_FICHIER (explicite), sinon
-     * candidats du dossier configuré par priorité — le dédicacé
+     * candidats des dossiers essayés par priorité — le dossier configuré
+     * (PORTAIL_TAXREF_DIR / portail.inpn.taxref_dossier), puis
+     * <inpn.dir>/TAXREF et <inpn.dir>/taxref (le conteneur Linux est
+     * case-sensitive, le poste Windows local non) — dans l'ordre :
      * TAXVERNv*.txt d'abord (léger, langues mélangées), puis TAXREFv*.txt
      * et TAXREF.txt (NOM_VERN). glob() est trié alphanumériquement :
      * v18 avant v17, la distribution la plus récente d'abord.
@@ -294,11 +297,19 @@ class InpnImportService
             return is_file($explicite) ? $explicite : null;
         }
 
-        $dossier = (string) config('portail.inpn.taxref_dossier', '');
-        foreach (['TAXVERNv*.txt', 'TAXREFv*.txt', 'TAXREF.txt'] as $motif) {
-            $candidats = glob($dossier.'/'.$motif) ?: [];
-            if ($candidats !== []) {
-                return $candidats[0];
+        $dossiers = [(string) config('portail.inpn.taxref_dossier', '')];
+        try {
+            $dossiers[] = $this->dir().'/TAXREF';
+            $dossiers[] = $this->dir().'/taxref';
+        } catch (RuntimeException) {
+            // dossier INPN non monté : on se contente du dossier configuré
+        }
+        foreach (array_unique(array_filter($dossiers)) as $dossier) {
+            foreach (['TAXVERNv*.txt', 'TAXREFv*.txt', 'TAXREF.txt'] as $motif) {
+                $candidats = glob($dossier.'/'.$motif) ?: [];
+                if ($candidats !== []) {
+                    return $candidats[0];
+                }
             }
         }
 
@@ -1052,6 +1063,172 @@ class InpnImportService
         }
 
         return ['code' => 'AP', 'libelle' => $libelle];
+    }
+
+    // ==================================================================
+    // Référentiel de sensibilité SINP v18 (INPN)
+    // ==================================================================
+
+    /**
+     * Import du référentiel de sensibilité (SENSIBILITE_18/) : une ligne par
+     * taxon × département × niveau de sensibilité, compilé des listes
+     * régionales + pré-liste nationale (CD_DEPT vide = national).
+     *
+     * La table ne sert JAMAIS à afficher une sensibilité : elle alimente
+     * uniquement le filtre « espèce jamais affichée ni comptée » posé côté
+     * requête dans App\Support\Especes (règle absolue AGENTS.md, renforcée
+     * par rapport au seul flag FG_CONF de REF_ESPECE.csv).
+     *
+     * Idempotent : rechargement intégral des deux tables (24 k lignes, lu en
+     * flux — jamais de lecture complète en mémoire). Indépendant du
+     * périmètre --dept : la sensibilité est un référentiel national.
+     *
+     * @param  callable(int): void  $tick
+     * @return array{lignes: int, taxons: int, mtd: int}
+     */
+    public function importSensibilite(?callable $tick = null): array
+    {
+        $dir = $this->dossierSensibilite();
+        $fichierMtd = $dir.'/RefSensibiliteMtd.csv';
+        $fichier = $dir.'/RefSensibilite_18.csv';
+        if (! is_file($fichier)) {
+            // Tolérance au numéro de version : RefSensibilite_*.csv le plus récent.
+            foreach (glob($dir.'/RefSensibilite_*.csv') ?: [] as $candidat) {
+                if (preg_match('/RefSensibilite_\d+\.csv$/i', $candidat) === 1) {
+                    $fichier = $candidat;
+                    break;
+                }
+            }
+        }
+        if (! is_file($fichier)) {
+            throw new RuntimeException("Référentiel de sensibilité introuvable : {$dir}/RefSensibilite_*.csv");
+        }
+
+        $nbMtd = $this->importSensibiliteMtd($fichierMtd);
+
+        DB::table('sensibilite_especes')->delete(); // rechargement intégral (idempotent)
+        $chunk = [];
+        $nb = 0;
+        $taxons = [];
+        foreach ($this->csv->iterate($fichier, ',') as $rec) {
+            $cdRef = $this->intOuNull($rec['cd_ref'] ?? null);
+            if ($cdRef === null) {
+                continue;
+            }
+            $taxons[$cdRef] = true;
+            $chunk[] = [
+                'cd_nom' => $this->intOuNull($rec['cd_nom'] ?? null),
+                'cd_ref' => $cdRef,
+                'cd_sensibilite' => (int) ($this->intOuNull($rec['cd_sensibilite'] ?? null) ?? 0),
+                'duree' => $this->intOuNull($rec['duree'] ?? null),
+                'cd_dept' => $this->nonVide($rec['cd_dept'] ?? null),
+                'statut_biologique' => $this->intOuNull($rec['statut_biologique'] ?? null),
+                'comportement' => $this->intOuNull($rec['comportement'] ?? null),
+                'autre' => $this->nonVide($rec['autre'] ?? null),
+                'cd_sens_mtd' => $this->intOuNull($rec['cd_sens_mtd'] ?? null),
+                'created_at' => now(),
+                'updated_at' => now(),
+            ];
+            if (count($chunk) >= self::BATCH) {
+                DB::table('sensibilite_especes')->insert($chunk);
+                $nb += count($chunk);
+                $chunk = [];
+                if ($tick !== null) {
+                    $tick($nb);
+                }
+            }
+        }
+        if ($chunk !== []) {
+            DB::table('sensibilite_especes')->insert($chunk);
+            $nb += count($chunk);
+        }
+
+        $this->registrer('sensibilite', $nb, $this->versionSensibilite($fichier));
+
+        return ['lignes' => $nb, 'taxons' => count($taxons), 'mtd' => $nbMtd];
+    }
+
+    /**
+     * Méthodes de sensibilité (RefSensibiliteMtd.csv, séparateur « ; »,
+     * encodage Windows-1252 possible) : crédit des listes régionales.
+     */
+    private function importSensibiliteMtd(string $fichier): int
+    {
+        if (! is_file($fichier)) {
+            Log::warning('RefSensibiliteMtd.csv absent : sensibilite_mtd laissée vide.', ['fichier' => $fichier]);
+
+            return 0;
+        }
+
+        $texte = file_get_contents($fichier);
+        if ($texte === false) {
+            throw new RuntimeException("Impossible de lire {$fichier}");
+        }
+        $texte = $this->utf8($texte);
+        $lignes = preg_split('/\r\n|\r|\n/', $texte) ?: [];
+        $header = array_map(fn ($h) => mb_strtolower(trim(trim((string) $h, "\"'"))), (array) str_getcsv((string) array_shift($lignes), ';'));
+
+        DB::table('sensibilite_mtd')->delete();
+        $chunk = [];
+        $nb = 0;
+        foreach ($lignes as $ligne) {
+            if (trim($ligne) === '') {
+                continue;
+            }
+            $champs = str_getcsv($ligne, ';');
+            if (count($champs) !== count($header)) {
+                continue; // ligne de largeur différente : ignorée
+            }
+            $rec = array_change_key_case(array_combine($header, $champs), CASE_LOWER);
+            $id = $this->intOuNull($rec['cd_sens_mtd'] ?? null);
+            if ($id === null) {
+                continue;
+            }
+            $chunk[] = [
+                'id' => $id,
+                'cd_reg' => (string) ($this->nonVide($rec['cd_reg'] ?? null) ?? ''),
+                'libelle_liste' => $this->nonVide($this->utf8((string) ($rec['libelle_liste'] ?? ''))),
+                'ref_biblio' => $this->nonVide($this->utf8((string) ($rec['ref_biblio'] ?? ''))),
+                'url' => $this->nonVide($rec['url'] ?? null),
+                'ressource' => $this->nonVide($rec['ressource'] ?? null),
+            ];
+            if (count($chunk) >= self::BATCH) {
+                DB::table('sensibilite_mtd')->insert($chunk);
+                $nb += count($chunk);
+                $chunk = [];
+            }
+        }
+        if ($chunk !== []) {
+            DB::table('sensibilite_mtd')->insert($chunk);
+            $nb += count($chunk);
+        }
+
+        return $nb;
+    }
+
+    /** Dossier du référentiel de sensibilité (config, repli <inpn.dir>/SENSIBILITE_18). */
+    private function dossierSensibilite(): string
+    {
+        $dossier = (string) config('portail.inpn.sensibilite_dossier', '');
+        if ($dossier !== '' && is_dir($dossier)) {
+            return $dossier;
+        }
+        $repli = $this->dir().'/SENSIBILITE_18';
+        if (is_dir($repli)) {
+            return $repli;
+        }
+
+        throw new RuntimeException('Dossier du référentiel de sensibilité introuvable (PORTAIL_SENSIBILITE_DIR / portail.inpn.sensibilite_dossier).');
+    }
+
+    /** Version créditée : numéro lu dans le nom du fichier (RefSensibilite_18.csv → « v18 »). */
+    private function versionSensibilite(string $fichier): ?string
+    {
+        if (preg_match('/RefSensibilite_(\d+)\.csv$/i', basename($fichier), $m) === 1) {
+            return (string) config('portail.inpn.versions.sensibilite').' — v'.$m[1];
+        }
+
+        return null;
     }
 
     // ==================================================================

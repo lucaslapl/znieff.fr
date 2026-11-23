@@ -23,11 +23,11 @@ use Illuminate\Support\Facades\DB;
 class PortailImportInpnCommand extends Command
 {
     protected $signature = 'portail:import-inpn
-        {--source=all : znieff|natura|aires|all}
+        {--source=all : znieff|natura|aires|sensibilite|all}
         {--dept= : un seul département (mode test, ex. 27) — périmètre de table destructif}
         {--skip-geojson : ne pas (ré)générer les surcouches GeoJSON}';
 
-    protected $description = 'Importe les référentiels INPN (ZNIEFF, Natura 2000, aires protégées) et précalcule les croisements';
+    protected $description = 'Importe les référentiels INPN (ZNIEFF, Natura 2000, aires protégées, sensibilité SINP) et précalcule les croisements';
 
     public function handle(InpnImportService $inpn): int
     {
@@ -39,8 +39,8 @@ class PortailImportInpnCommand extends Command
         $dept = $this->option('dept') !== null ? (string) $this->option('dept') : null;
         $avecGeojson = ! $this->option('skip-geojson');
 
-        if (! in_array($source, ['znieff', 'natura', 'aires', 'all'], true)) {
-            $this->error("Source inconnue : {$source} (znieff|natura|aires|all)");
+        if (! in_array($source, ['znieff', 'natura', 'aires', 'sensibilite', 'all'], true)) {
+            $this->error("Source inconnue : {$source} (znieff|natura|aires|sensibilite|all)");
 
             return self::FAILURE;
         }
@@ -80,6 +80,15 @@ class PortailImportInpnCommand extends Command
             $this->afficher('aires', $retour, ['aires', 'geometries', 'intersections']);
         }
 
+        // Référentiel de sensibilité SINP : référentiel national, hors
+        // périmètre --dept (il filtre les affichages, ne décrit pas un
+        // territoire importé).
+        if (in_array($source, ['sensibilite', 'all'], true)) {
+            $this->info('Référentiel de sensibilité SINP v18…');
+            $retour = $inpn->importSensibilite($progression);
+            $this->afficher('sensibilite', $retour, ['lignes', 'taxons', 'mtd']);
+        }
+
         $this->info('Import INPN terminé.');
         $this->line('SQL portable : `php artisan portail:export-sql`.');
 
@@ -95,7 +104,7 @@ class PortailImportInpnCommand extends Command
         foreach ($cles as $cle) {
             $this->line(sprintf('  %s : %s', $cle, number_format((float) ($retour[$cle] ?? 0))));
         }
-        if (! empty($retour['spatial']) === false) {
+        if (array_key_exists('spatial', $retour) && $retour['spatial'] === false) {
             $this->warn('  PostGIS indisponible : attributs seuls (SQLite ?) — relancer dans le conteneur Docker.');
         }
         if (($retour['geojson'] ?? 0) > 0) {

@@ -51,6 +51,13 @@ return [
         // récent glob INPG_BDD_* sous <inpn.dir>.
         'inpg_dossier' => env('PORTAIL_INPG_DIR', base_path('data/inpn-data/INPG_BDD_072025')),
 
+        // Fiches PDF ZNIEFF (INPN/MNHN) : 19 dossiers régionaux sous ce
+        // répertoire, un PDF par zone nommé {NM_SFFZN}.pdf (ex.
+        // 28_Normandie/230009093.pdf). Les PDF copiés en local le sont dans
+        // portail.stockage_pdf (HORS public/) et servis uniquement via la
+        // route filtrée /znieff/{id}/fiche.pdf (jamais d'URL statique).
+        'pdf_dossier' => env('PORTAIL_PDF_ZNIEFF_DIR', base_path('data/inpn-data/PDF ZNIEFF')),
+
         // Versions des référentiels, affichées en pied de page et sur la page
         // Données & méthodologie. Date de la base diffusée par l'INPN.
         'versions' => [
@@ -62,6 +69,7 @@ return [
             'sensibilite' => 'référentiel de sensibilité des données SINP (INPN) — v18, août 2025',
             'bdc' => 'base de connaissance des statuts BDC (INPN) — v18, juillet 2025',
             'inpg' => 'inventaire national du patrimoine géologique INPG (INPN/MNHN) — juillet 2025',
+            'pdf' => 'fiches PDF des ZNIEFF (INPN/MNHN) — diffusion INPN',
         ],
     ],
 
@@ -79,6 +87,9 @@ return [
         'inpg' => 'https://inpn.mnhn.fr/site/inpg/',               // + identifiant métier (ex. NAQ0004)
         'abc' => 'https://observatoire-abc.fr',
         'abc_commune' => 'https://observatoire-abc.fr/commune/',   // + code INSEE
+        // SINP : point d'entrée des demandes d'accès aux données sensibles
+        // (fiches PDF des zones à espèces sensibles, cf. route znieff.pdf).
+        'sinp' => 'https://sinp.naturefrance.fr/',
     ],
 
     /*
@@ -229,4 +240,13 @@ return [
     */
     'export_dir' => storage_path('app/portail/deploy'),
     'cache_dir' => storage_path('app/portail/cache'),
+
+    /*
+    | Stockage LOCAL des fiches PDF ZNIEFF (INPN) : JAMAIS dans public/,
+    | elles sont servies uniquement via la route filtrée
+    | /znieff/{id}/fiche.pdf (ZonageController@pdf) qui bloque les zones à
+    | espèces sensibles côté requête — un PDF sensible ne doit pas être
+    | accessible par une URL statique devinable.
+    */
+    'stockage_pdf' => storage_path('app/portail/pdf/znieff'),
 ];

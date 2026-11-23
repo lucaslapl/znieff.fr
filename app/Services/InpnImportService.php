@@ -2288,6 +2288,132 @@ class InpnImportService
         return in_array($prefixe, self::TERRITOIRES, true) ? strtolower($prefixe) : 'metrop';
     }
 
+    // ==================================================================
+    // Fiches PDF des ZNIEFF (INPN/MNHN)
+    // ==================================================================
+
+    /**
+     * Fiches PDF ZNIEFF (dump « PDF ZNIEFF » : 19 dossiers régionaux, un
+     * PDF par zone nommé {NM_SFFZN}.pdf). Attributs seuls, AUCUN calcul
+     * spatial : métadonnées dans `znieff_pdfs` + copie des fichiers dans
+     * portail.stockage_pdf (HORS public/ — servis uniquement via la route
+     * filtrée /znieff/{id}/fiche.pdf).
+     *
+     * En mode --dept, le périmètre de table est destructif (comme les
+     * autres sources) : seules les ZNIEFF du département restent, et les
+     * PDF copiés hors périmètre sont supprimés du stockage local.
+     *
+     * @param  callable(int): void  $tick
+     * @return array{zones: int, pdf: int, octets: int, manquants: int}
+     */
+    public function importPdf(?string $dept = null, ?callable $tick = null): array
+    {
+        $dir = $this->dossierPdf();
+
+        // Index du dump : NM_SFFZN => [chemin, dossier_region] (scan
+        // récursif des 19 dossiers régionaux, ~20 210 PDF France entière).
+        $index = [];
+        foreach (glob($dir.'/*/*.pdf', GLOB_NOSORT) ?: [] as $chemin) {
+            $id = basename($chemin, '.pdf');
+            if (preg_match('/^[0-9A-Za-z]{4,12}$/', $id) === 1 && ! isset($index[$id])) {
+                $index[$id] = [$chemin, basename(dirname($chemin))];
+            }
+        }
+        if ($index === []) {
+            throw new RuntimeException("Aucun PDF trouvé sous {$dir}/*/*.pdf");
+        }
+
+        // Périmètre : zonages ZNIEFF du département (via communes croisées),
+        // ou tous les zonages sans --dept.
+        $requete = DB::table('zonages')->whereIn('famille', ['z1', 'z2']);
+        if ($dept !== null) {
+            $requete->whereIn('id', function ($q) use ($dept) {
+                $q->select('p.zonage_id')
+                    ->from('zonage_communes as p')
+                    ->join('communes as c', 'c.insee', '=', 'p.insee')
+                    ->where('c.dept', $dept);
+            });
+        }
+        /** @var array<int, string> $idsZonages */
+        $idsZonages = $requete->pluck('id')->map(fn ($v) => (string) $v)->all();
+
+        // Mode --dept destructif : on ne garde que le périmètre.
+        DB::table('znieff_pdfs')->delete();
+
+        $stockage = (string) config('portail.stockage_pdf');
+        if (! is_dir($stockage)) {
+            mkdir($stockage, 0775, true);
+        }
+
+        $chunk = [];
+        $nb = 0;
+        $octets = 0;
+        $manquants = 0;
+        $copies = []; // id => true (pour purger le stockage hors périmètre)
+        foreach ($idsZonages as $id) {
+            if (! isset($index[$id])) {
+                $manquants++;
+
+                continue;
+            }
+            [$chemin, $dossierRegion] = $index[$id];
+            $taille = (int) (filesize($chemin) ?: 0);
+            $chunk[] = [
+                'zonage_id' => $id,
+                'taille_octets' => $taille,
+                'dossier_region' => $dossierRegion,
+                'nom_fichier' => basename($chemin),
+                'created_at' => now(),
+                'updated_at' => now(),
+            ];
+            // Copie locale (écrase) — le filtre de diffusion se fait à la
+            // lecture (route znieff.pdf), pas au stockage.
+            if (! copy($chemin, $stockage.'/'.$id.'.pdf')) {
+                throw new RuntimeException("Copie impossible : {$chemin} → {$stockage}/{$id}.pdf");
+            }
+            $copies[$id] = true;
+            $octets += $taille;
+            $nb++;
+            if (count($chunk) >= self::BATCH) {
+                DB::table('znieff_pdfs')->insert($chunk);
+                $chunk = [];
+            }
+            if ($tick !== null && $nb % 100 === 0) {
+                $tick($nb);
+            }
+        }
+        if ($chunk !== []) {
+            DB::table('znieff_pdfs')->insert($chunk);
+        }
+
+        // Purge du stockage : fichiers hors périmètre (mode --dept).
+        foreach (glob($stockage.'/*.pdf', GLOB_NOSORT) ?: [] as $fichier) {
+            $id = basename($fichier, '.pdf');
+            if (! isset($copies[$id])) {
+                @unlink($fichier);
+            }
+        }
+
+        $this->registrer('pdf', $nb, (string) config('portail.inpn.versions.pdf'));
+
+        return ['zones' => count($idsZonages), 'pdf' => $nb, 'octets' => $octets, 'manquants' => $manquants];
+    }
+
+    /** Dossier des fiches PDF ZNIEFF (config, repli <inpn.dir>/PDF ZNIEFF). */
+    private function dossierPdf(): string
+    {
+        $dossier = (string) config('portail.inpn.pdf_dossier', '');
+        if ($dossier !== '' && is_dir($dossier)) {
+            return $dossier;
+        }
+        $repli = $this->dir().'/PDF ZNIEFF';
+        if (is_dir($repli)) {
+            return $repli;
+        }
+
+        throw new RuntimeException('Dossier des fiches PDF ZNIEFF introuvable (PORTAIL_PDF_ZNIEFF_DIR / portail.inpn.pdf_dossier).');
+    }
+
     private function dossierNatura(): string
     {
         foreach (glob($this->dir().'/NATURA_BDD_*') ?: [] as $dossier) {

@@ -23,7 +23,7 @@ use Illuminate\Support\Facades\DB;
 class PortailImportInpnCommand extends Command
 {
     protected $signature = 'portail:import-inpn
-        {--source=all : znieff|natura|aires|sensibilite|bdc|inpg|all}
+        {--source=all : znieff|natura|aires|sensibilite|bdc|inpg|pdf|all}
         {--dept= : un seul département (mode test, ex. 27) — périmètre de table destructif}
         {--skip-geojson : ne pas (ré)générer les surcouches GeoJSON}';
 
@@ -39,8 +39,8 @@ class PortailImportInpnCommand extends Command
         $dept = $this->option('dept') !== null ? (string) $this->option('dept') : null;
         $avecGeojson = ! $this->option('skip-geojson');
 
-        if (! in_array($source, ['znieff', 'natura', 'aires', 'sensibilite', 'bdc', 'inpg', 'all'], true)) {
-            $this->error("Source inconnue : {$source} (znieff|natura|aires|sensibilite|bdc|inpg|all)");
+        if (! in_array($source, ['znieff', 'natura', 'aires', 'sensibilite', 'bdc', 'inpg', 'pdf', 'all'], true)) {
+            $this->error("Source inconnue : {$source} (znieff|natura|aires|sensibilite|bdc|inpg|pdf|all)");
 
             return self::FAILURE;
         }
@@ -102,6 +102,15 @@ class PortailImportInpnCommand extends Command
             $this->info('INPG — patrimoine géologique…');
             $retour = $inpn->importInpg($dept, $progression, $avecGeojson);
             $this->afficher('inpg', $retour, ['sites', 'interets', 'geometries', 'intersections']);
+        }
+
+        // Fiches PDF ZNIEFF (INPN) : métadonnées + copie locale hors public/,
+        // servies via la route filtrée /znieff/{id}/fiche.pdf. À relancer
+        // après znieff (périmètre des zonages).
+        if (in_array($source, ['pdf', 'all'], true)) {
+            $this->info('Fiches PDF ZNIEFF (INPN)…');
+            $retour = $inpn->importPdf($dept, $progression);
+            $this->afficher('pdf', $retour, ['zones', 'pdf', 'octets', 'manquants']);
         }
 
         $this->info('Import INPN terminé.');

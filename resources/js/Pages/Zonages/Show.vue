@@ -25,6 +25,7 @@ const props = defineProps({
     groupes: { type: Array, required: true }, // sous-onglets : [{ groupe, n }]
     groupeActif: { type: String, default: null }, // ?groupe=Oiseaux
     paginationEspeces: { type: Object, required: true }, // pagination serveur des espèces (?page_especes=)
+    pdf: { type: Object, required: true }, // { present, sensible, url, url_sinp } — fiche PDF INPN
 });
 
 const type = props.zonage.famille === 'z1' ? 'ZNIEFF I' : 'ZNIEFF II';
@@ -78,6 +79,17 @@ const urlGroupe = (g) => ziggyRoute(
                         </dd>
                         <dt>Fiche INPN</dt>
                         <dd><a :href="zonage.url_inpn" target="_blank" rel="noopener">Consulter la fiche INPN ↗</a></dd>
+                        <template v-if="pdf.present && !pdf.sensible">
+                            <dt>Fiche PDF</dt>
+                            <dd><a :href="pdf.url" target="_blank" rel="noopener">Télécharger la fiche PDF (INPN/MNHN) ↗</a></dd>
+                        </template>
+                        <template v-else-if="pdf.present && pdf.sensible">
+                            <dt>Fiche PDF</dt>
+                            <dd class="hint">
+                                Non diffusée en ligne (zone à espèces sensibles) — demande à adresser au
+                                <a :href="pdf.url_sinp" target="_blank" rel="noopener">SINP régional (DREAL) ↗</a>.
+                            </dd>
+                        </template>
                     </dl>
                     <div v-if="enfants.length > 0">
                         <h3>ZNIEFF I rattachées ({{ enfants.length }})</h3>

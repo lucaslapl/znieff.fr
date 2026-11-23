@@ -394,6 +394,40 @@ final class Especes
     }
 
     /**
+     * La ZNIEFF contient-elle au moins un taxon qu'on ne doit JAMAIS diffuser
+     * en intégralité (fiche PDF comprise) ? Filtre posé CÔTÉ REQUÊTE, plus
+     * strict que znieffVisibles : sont comptés les taxons `confidentielle`
+     * (flag REF_ESPECE) OU présents dans le référentiel de sensibilité SINP
+     * v18 (pré-liste nationale cd_dept null + cd_dept des départements de la
+     * zone). Sert à la route /znieff/{id}/fiche.pdf : une zone « sensible »
+     * ne reçoit jamais sa fiche PDF (les fiches INPN peuvent contenir des
+     * localisations précises d'espèces sensibles) — la mention affichée
+     * renvoie au SINP (DREAL), seul habilité à délivrer ces données.
+     */
+    public static function zoneSensible(string $zonageId): bool
+    {
+        $depts = self::deptsZonage($zonageId);
+
+        return DB::table('znieff_especes as e')
+            ->where('e.zonage_id', $zonageId)
+            ->where(function ($w) use ($depts) {
+                $w->where('e.confidentielle', true)
+                    ->orWhereExists(function ($q) use ($depts) {
+                        $q->select(DB::raw(1))
+                            ->from('sensibilite_especes as s')
+                            ->whereColumn('s.cd_ref', 'e.cd_ref')
+                            ->where(function ($w2) use ($depts) {
+                                $w2->whereNull('s.cd_dept'); // pré-liste nationale
+                                if ($depts !== null) {
+                                    $w2->orWhereIn('s.cd_dept', $depts);
+                                }
+                            });
+                    });
+            })
+            ->exists();
+    }
+
+    /**
      * Départements des communes traversées par une ZNIEFF (pivot précalculé
      * zonage_communes → communes) : la sensibilité d'un taxon s'apprécie au
      * département de la zone affichée. Zone sans commune connue : null

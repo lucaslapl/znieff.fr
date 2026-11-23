@@ -13,8 +13,10 @@ use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ZonageController extends Controller
@@ -108,6 +110,11 @@ class ZonageController extends Controller
 
         $url = route('znieff.show', $zonage->id);
 
+        // Fiche PDF INPN : présente si importée (table znieff_pdfs) ; une zone
+        // à espèces sensibles (filtre absolu côté requête, App\Support\Especes)
+        // ne reçoit JAMAIS son PDF — la vue affiche alors la mention SINP.
+        $pdfPresent = DB::table('znieff_pdfs')->where('zonage_id', $zonage->id)->exists();
+
         return Inertia::render('Zonages/Show', [
             'meta' => ['title' => sprintf('« %s » — ZNIEFF %s n° %s', $zonage->nom, $zonage->famille === 'z1' ? 'I' : 'II', $zonage->id), 'description' => Chapeaux::meta($chapeau), 'canonical' => $url],
             'zonage' => [
@@ -150,6 +157,12 @@ class ZonageController extends Controller
             'nbEspecesTotal' => array_sum(array_column($groupes, 'n')),
             'groupes' => $groupes,
             'groupeActif' => $groupe,
+            'pdf' => [
+                'present' => $pdfPresent,
+                'sensible' => $pdfPresent ? Especes::zoneSensible($zonage->id) : false,
+                'url' => route('znieff.pdf', $zonage->id),
+                'url_sinp' => (string) config('portail.urls.sinp'),
+            ],
             'paginationEspeces' => $this->paginationFiche(
                 'znieff.show',
                 array_merge(['id' => $zonage->id], $groupe !== null ? ['groupe' => $groupe] : []),
@@ -173,6 +186,39 @@ class ZonageController extends Controller
         }
 
         return redirect()->to(route('znieff.show', $zonage->id), 301);
+    }
+
+    /**
+     * Fiche PDF INPN d'une ZNIEFF, servie depuis le stockage local (les PDF
+     * ne sont JAMAIS dans public/). RÈGLE ABSOLUE : une zone contenant un
+     * taxon confidentiel ou sous sensibilité SINP v18 renvoie 404 — comme si
+     * le PDF n'existait pas — car les fiches INPN peuvent contenir des
+     * localisations précises d'espèces sensibles (filtre posé côté requête,
+     * App\Support\Especes::zoneSensible). La fiche affiche alors une mention
+     * « demande à adresser au SINP (DREAL) ».
+     */
+    public function pdf(string $id): BinaryFileResponse
+    {
+        $zonage = Zonage::query()->findOrFail($id);
+        if ($zonage->famille !== 'z1' && $zonage->famille !== 'z2') {
+            abort(404);
+        }
+        if (Especes::zoneSensible($id)) {
+            abort(404);
+        }
+        if (! DB::table('znieff_pdfs')->where('zonage_id', $id)->exists()) {
+            abort(404);
+        }
+        $chemin = rtrim((string) config('portail.stockage_pdf'), '/').'/'.$id.'.pdf';
+        if (! is_file($chemin)) {
+            abort(404);
+        }
+
+        return response()->file($chemin, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'inline; filename="'.$id.'.pdf"',
+            'Cache-Control' => 'public, max-age=86400',
+        ]);
     }
 
     /**

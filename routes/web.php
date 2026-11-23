@@ -102,6 +102,13 @@ Route::get('/znieff/{id}', [ZonageController::class, 'showOuNumero'])
     ->where('id', '[0-9A-Za-z]{4,12}')
     ->name('znieff.show');
 
+// Fiche PDF INPN d'une ZNIEFF, servie depuis le stockage local (les PDF ne
+// sont jamais en statique dans public/) : une zone à espèces sensibles
+// (confidentielle ou référentiel SINP v18) renvoie 404 (filtre côté requête).
+Route::get('/znieff/{id}/fiche.pdf', [ZonageController::class, 'pdf'])
+    ->where('id', '[0-9A-Za-z]{4,12}')
+    ->name('znieff.pdf');
+
 // -- Natura 2000 : /natura/{code} (code européen FR…).
 //    Les contraintes de route doivent rester compatibles JavaScript :
 //    Ziggy les compile côté client et SSR — pas de drapeau PCRE « (?i) »

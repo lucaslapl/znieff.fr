@@ -62,6 +62,9 @@ h3 { font-size: 0.98rem; color: var(--vert); margin: 1.1rem 0 0.4rem; }
     border-radius: 10px;
     padding: 1.25rem 1.5rem;
     margin-top: 1rem;
+    /* Un tableau plus large que la carte (noms d'aires protégées longs,
+       badges) défile horizontalement ici au lieu de déborder la page. */
+    overflow-x: auto;
 }
 .badge {
     display: inline-block;
@@ -104,7 +107,11 @@ h3 { font-size: 0.98rem; color: var(--vert); margin: 1.1rem 0 0.4rem; }
 .stat .lab { font-size: 0.75rem; color: var(--gris); }
 
 table { width: 100%; border-collapse: collapse; font-size: 0.88rem; margin-top: 0.6rem; }
-th, td { text-align: left; padding: 0.5rem 0.65rem; border-bottom: 1px solid var(--bord); vertical-align: top; }
+th, td { text-align: left; padding: 0.5rem 0.65rem; border-bottom: 1px solid var(--bord); vertical-align: top; overflow-wrap: anywhere; }
+/* Dans une cellule, un badge (type d'aire protégée…) peut passer à la
+   ligne : son white-space: nowrap global force sinon une largeur minimale
+   qui fait déborder le tableau du .plate. */
+td .badge { white-space: normal; }
 th { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--gris); background: var(--vert-tres-clair); }
 tr.group td { background: var(--vert-clair); font-weight: 700; color: var(--vert-fonce); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; }
 .sciname { font-style: italic; }

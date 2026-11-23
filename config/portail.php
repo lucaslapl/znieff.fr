@@ -44,6 +44,13 @@ return [
         // Les lignes SENSIBILITE n'y sont jamais importées (filtre, pas affichage).
         'bdc_dossier' => env('PORTAIL_BDC_DIR', base_path('data/inpn-data/BDC_18')),
 
+        // INPG — Inventaire National du Patrimoine Géologique (INPN/MNHN) :
+        // BDD attributaire (inpg_data_*.csv, « ; ») + SIG shapefiles par
+        // territoire (SIG_INPG/inpg_sig_{metrop,glp,guf,mtq,myt,reu,spm}.shp).
+        // Le dossier est versionné (INPG_BDD_072025) : repli sur le plus
+        // récent glob INPG_BDD_* sous <inpn.dir>.
+        'inpg_dossier' => env('PORTAIL_INPG_DIR', base_path('data/inpn-data/INPG_BDD_072025')),
+
         // Versions des référentiels, affichées en pied de page et sur la page
         // Données & méthodologie. Date de la base diffusée par l'INPN.
         'versions' => [
@@ -54,6 +61,7 @@ return [
             'taxref' => 'référentiel taxonomique TAXREF (MNHN)',
             'sensibilite' => 'référentiel de sensibilité des données SINP (INPN) — v18, août 2025',
             'bdc' => 'base de connaissance des statuts BDC (INPN) — v18, juillet 2025',
+            'inpg' => 'inventaire national du patrimoine géologique INPG (INPN/MNHN) — juillet 2025',
         ],
     ],
 
@@ -68,6 +76,7 @@ return [
         'natura' => 'https://inpn.mnhn.fr/site/natura2000/',       // + code FR
         'ap' => 'https://inpn.mnhn.fr/espace/protege/',            // + id MNHN
         'commune_inpn' => 'https://inpn.mnhn.fr/collTerr/commune/', // + code INSEE
+        'inpg' => 'https://inpn.mnhn.fr/site/inpg/',               // + identifiant métier (ex. NAQ0004)
         'abc' => 'https://observatoire-abc.fr',
         'abc_commune' => 'https://observatoire-abc.fr/commune/',   // + code INSEE
     ],
@@ -89,6 +98,7 @@ return [
             'z2' => 55,
             'natura' => 25,
             'ap' => 5,
+            'inpg' => 10,
             'communes' => 100,
         ],
         'decimales' => 5,

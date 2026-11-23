@@ -10,6 +10,8 @@ const props = defineProps({
     zonages: { type: Array, required: true },
     natura: { type: Array, required: true },
     aires: { type: Array, required: true },
+    inpg: { type: Array, required: true },
+    nbInpg: { type: Number, required: true },
     voisines: { type: Array, required: true },
     nbZonages: { type: Number, required: true },
     nbNatura: { type: Number, required: true },

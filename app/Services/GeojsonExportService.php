@@ -36,6 +36,7 @@ class GeojsonExportService
         'z2' => 'portail_tmp_znieff',
         'nat' => 'portail_tmp_natura',
         'ap' => 'portail_tmp_apa',
+        'inpg' => 'portail_tmp_inpg',
     ];
 
     /** familles → [table pivot, colonne id] (adhésion aux départements) */
@@ -44,6 +45,7 @@ class GeojsonExportService
         'z2' => ['zonage_communes', 'zonage_id'],
         'nat' => ['natura_communes', 'site_code'],
         'ap' => ['ap_communes', 'ap_id'],
+        'inpg' => ['inpg_communes', 'site_id'],
     ];
 
     /** familles → nom de fichier départemental */
@@ -52,6 +54,7 @@ class GeojsonExportService
         'z2' => 'znieff-z2.geojson',
         'nat' => 'natura.geojson',
         'ap' => 'ap.geojson',
+        'inpg' => 'inpg.geojson',
     ];
 
     /** familles → dossier des fichiers objet */
@@ -60,6 +63,7 @@ class GeojsonExportService
         'z2' => 'zonages/z2',
         'nat' => 'natura',
         'ap' => 'ap',
+        'inpg' => 'inpg',
     ];
 
     /**
@@ -259,6 +263,8 @@ class GeojsonExportService
                 'zonage_communes' => $compter('zonage_communes'),
                 'natura_communes' => $compter('natura_communes'),
                 'ap_communes' => $compter('ap_communes'),
+                'inpg_sites' => $compter('inpg_sites'),
+                'inpg_communes' => $compter('inpg_communes'),
             ],
             'actions' => ['departs' => array_map('basename', glob($this->dir().'/dept-*') ?: [])],
         ], 'manifest');
@@ -305,12 +311,12 @@ class GeojsonExportService
     private function familleValide(string $famille): void
     {
         if (! isset(self::STAGING[$famille])) {
-            throw new \InvalidArgumentException("Famille inconnue : {$famille} (z1|z2|nat|ap)");
+            throw new \InvalidArgumentException("Famille inconnue : {$famille} (z1|z2|nat|ap|inpg)");
         }
     }
 
     private function cleTolerance(string $famille): string
     {
-        return ['z1' => 'z1', 'z2' => 'z2', 'nat' => 'natura', 'ap' => 'ap'][$famille];
+        return ['z1' => 'z1', 'z2' => 'z2', 'nat' => 'natura', 'ap' => 'ap', 'inpg' => 'inpg'][$famille];
     }
 }

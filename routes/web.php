@@ -5,6 +5,7 @@ use App\Http\Controllers\CarteController;
 use App\Http\Controllers\CommuneController;
 use App\Http\Controllers\DonneesController;
 use App\Http\Controllers\EspeceController;
+use App\Http\Controllers\GeologieController;
 use App\Http\Controllers\HomeController;
 use App\Http\Controllers\NaturaSiteController;
 use App\Http\Controllers\RechercheController;
@@ -39,6 +40,7 @@ Route::get('/communes', [CommuneController::class, 'index'])->name('communes.ind
 Route::get('/znieff', [ZonageController::class, 'index'])->name('znieff.index');
 Route::get('/natura', [NaturaSiteController::class, 'index'])->name('natura.index');
 Route::get('/ap', [AireProtegeeController::class, 'index'])->name('ap.index');
+Route::get('/geologie', [GeologieController::class, 'index'])->name('geologie.index');
 
 // Recherche transverse (searchbar de l'accueil) : redirection vers la
 // fiche en cas de correspondance exacte, sinon résultats par section.
@@ -119,3 +121,9 @@ Route::get('/ap/{id}', [AireProtegeeController::class, 'show'])
 Route::get('/espece/{cd_ref}', [EspeceController::class, 'show'])
     ->where('cd_ref', '[0-9]{1,10}')
     ->name('espece.show');
+
+// -- Patrimoine géologique (INPG) : /geologie/{identifiant_metier} (ex. NAQ0004).
+//    Un site confidentiel (niv_diffusion = 1) renvoie 404.
+Route::get('/geologie/{id}', [GeologieController::class, 'show'])
+    ->where('id', '[A-Za-z0-9]{5,10}')
+    ->name('geologie.show');

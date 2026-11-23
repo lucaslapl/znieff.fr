@@ -8,6 +8,7 @@ use App\Models\NaturaSite;
 use App\Models\ReferentielImport;
 use App\Models\Zonage;
 use App\Support\Especes;
+use App\Support\Inpg;
 use Illuminate\Http\Response;
 
 /**
@@ -42,7 +43,7 @@ class SitemapController extends Controller
         // Colonnes du référentiel datées (table referentiel_imports,
         // déjà lue par le pied de page) ; null = première importation pas encore tracée.
         $this->lastmod = [];
-        foreach (['znieff', 'natura', 'aires', 'adminexpress', 'bdc'] as $source) {
+        foreach (['znieff', 'natura', 'aires', 'adminexpress', 'bdc', 'inpg'] as $source) {
             $ligne = ReferentielImport::query()->where('source', $source)->first(['importe_le']);
             $this->lastmod[$source] = $ligne?->importe_le?->toDateString();
         }
@@ -64,6 +65,8 @@ class SitemapController extends Controller
             'ap' => (int) ceil(AireProtegee::query()->count() / self::PAR_LOT),
             // Fiches espèces publiques uniquement (hors sensibles/confidentielles).
             'especes' => (int) ceil(Especes::requeteVisibles()->count() / self::PAR_LOT),
+            // Sites INPG publics uniquement (niv_diffusion = 2, filtre Inpg).
+            'geologie' => (int) ceil(Inpg::sitesVisibles()->count() / self::PAR_LOT),
         ];
 
         $lignes = '';
@@ -100,6 +103,7 @@ class SitemapController extends Controller
             'natura' => 'natura',
             'ap' => 'aires',
             'especes' => 'bdc',
+            'geologie' => 'inpg',
             default => null,
         };
         $lastmod = $source !== null ? ($this->lastmod[$source] ?? null) : null;
@@ -169,6 +173,10 @@ class SitemapController extends Controller
             'especes' => Especes::requeteVisibles()->orderBy('t.cd_ref')
                 ->forPage($lot, self::PAR_LOT)->pluck('t.cd_ref')
                 ->map(fn ($cd): array => ['url' => route('espece.show', (int) $cd)])
+                ->all(),
+            'geologie' => Inpg::sitesVisibles()->orderBy('identifiant_metier')
+                ->forPage($lot, self::PAR_LOT)->pluck('identifiant_metier')
+                ->map(fn ($im): array => ['url' => route('geologie.show', (string) $im)])
                 ->all(),
             default => null,
         };

@@ -55,11 +55,12 @@ test('ficheHref : route par famille', () => {
     assert.equal(ficheHref('z1', '230030467'), '/znieff/230030467');
     assert.equal(ficheHref('nat', 'FR2300128'), '/natura/FR2300128');
     assert.equal(ficheHref('ap', 'FR3800583'), '/ap/FR3800583');
+    assert.equal(ficheHref('inpg', 'NAQ0004'), '/geologie/NAQ0004');
 });
 
-test('surcouches d’un département : 5 couches, fichiers précalculés', () => {
+test('surcouches d’un département : 6 couches, fichiers précalculés', () => {
     const c = deptSurcouches('27');
-    assert.equal(c.length, 5);
+    assert.equal(c.length, 6);
     assert.deepEqual(
         c.map(x => x.url),
         [
@@ -68,10 +69,12 @@ test('surcouches d’un département : 5 couches, fichiers précalculés', () =>
             '/geo/dept-27/znieff-z1.geojson',
             '/geo/dept-27/natura.geojson',
             '/geo/dept-27/ap.geojson',
+            '/geo/dept-27/inpg.geojson',
         ],
     );
     assert.equal(c.find(x => x.famille === 'commune').label, 'Contours communaux');
     assert.equal(c.find(x => x.famille === 'nat').label, 'Natura 2000');
+    assert.equal(c.find(x => x.famille === 'inpg').label, 'Site géologique (INPG)');
 });
 
 test('basemaps : OSM et Plan IGN', () => {

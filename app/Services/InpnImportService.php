@@ -1509,6 +1509,617 @@ class InpnImportService
     }
 
     // ==================================================================
+    // INPG — Inventaire National du Patrimoine Géologique (INPN/MNHN)
+    // ==================================================================
+
+    /** SRS des shapefiles INPG par territoire (métrop en Lambert-93, OM en UTM/RGF). */
+    private const INPG_SRS = [
+        'metrop' => 2154,
+        'glp' => 32620,  // WGS84 UTM 20N
+        'guf' => 2972,  // RGFG95 UTM 22N
+        'mtq' => 32620,  // WGS84 UTM 20N
+        'myt' => 32738,  // WGS84 UTM 38S
+        'reu' => 2975,  // RGR92 UTM 40S
+        'spm' => 32621,  // WGS84 UTM 21N
+    ];
+
+    /**
+     * Import INPG : sites du patrimoine géologique (attributs), staging
+     * PostGIS des shapefiles SIG_INPG (sites publics uniquement — la
+     * géométrie d'un site confidentiel ne sort jamais), croisements
+     * communes, GeoJSON précalculés (famille « inpg »).
+     *
+     * Idempotent : rechargement intégral. --dept restreint le périmètre
+     * (sites intersectant le département, plus les sites qui lui sont
+     * rattachés dans inpg_data_site_commune.csv même sans géométrie).
+     *
+     * @param  callable(int): void  $tick
+     * @return array<string, int|bool>
+     */
+    public function importInpg(?string $dept = null, ?callable $tick = null, bool $avecGeojson = true): array
+    {
+        $dir = $this->dossierInpg();
+        $attrs = $this->attrsInpg($dir);
+        if ($attrs === []) {
+            throw new RuntimeException('Aucun site INPG trouvé dans inpg_data_site.csv.csv.');
+        }
+        $idsConnus = array_keys($attrs);
+
+        if (! $this->spatial->disponible()) {
+            Log::warning('Import INPG sans PostGIS : attributs du référentiel seuls (ni surfaces ni GeoJSON).');
+            $ids = $this->perimetreInpgAttributs($dir, $dept, $idsConnus);
+            $this->ecrireInpgSites($attrs, $ids, []);
+            $this->ecrireInpgPivots($dir, $ids, $tick);
+            $this->ecrireInpgCommunesCsv($dir, $ids); // pivot depuis le CSV (sans surfaces calculées)
+            $this->registrer('inpg', count($ids));
+
+            return ['sites' => count($ids), 'interets' => 0, 'geometries' => 0, 'intersections' => 0, 'spatial' => false];
+        }
+
+        $this->exigerReferentielCommunal();
+        $this->spatial->construireCommunesTemp($dept, $tick);
+
+        [$nbGeom, $territoires] = $this->stagingInpg($dir, $tick, $idsConnus);
+        $this->spatial->finaliserStaging('portail_tmp_inpg', $tick);
+
+        // Périmètre spatial (géométrie ∩ département) ∪ rattachement CSV
+        // (sites sans géométrie mais liés à une commune du département).
+        $idsSpatial = $this->perimetre('portail_tmp_inpg', $dept, $idsConnus);
+        $idsCsv = $this->perimetreInpgAttributs($dir, $dept, $idsConnus);
+        $ids = array_values(array_unique(array_merge($idsSpatial, $idsCsv)));
+
+        $this->ecrireInpgSites($attrs, $ids, $territoires);
+        $this->ecrireInpgPivots($dir, $ids, $tick);
+        $croisement = $this->spatial->croiser('inpg_communes', 'site_id', 'portail_tmp_inpg');
+        $this->spatial->reporterMesures('inpg_sites', 'id', 'portail_tmp_inpg');
+        $this->registrer('inpg', count($ids));
+
+        $fichiersGeojson = 0;
+        if ($avecGeojson) {
+            foreach ($this->departsTouchees($dept) as $d) {
+                $fichiersGeojson += $this->geojson->departementZones('inpg', $d);
+            }
+            foreach ($ids as $id) {
+                if ($this->geojson->objet('inpg', $id)) {
+                    $fichiersGeojson++;
+                }
+            }
+            $this->geojson->manifest();
+        }
+
+        return [
+            'sites' => count($ids),
+            'interets' => (int) DB::table('inpg_interets')->count(),
+            'geometries' => $nbGeom,
+            'intersections' => $croisement['nb'],
+            'communes_manquantes' => $croisement['communes_manquantes'],
+            'geojson' => $fichiersGeojson,
+            'spatial' => true,
+        ];
+    }
+
+    /** Dossier INPG (config, repli : <inpn.dir>/INPG_BDD_* le plus récent). */
+    private function dossierInpg(): string
+    {
+        $dossier = (string) config('portail.inpn.inpg_dossier', '');
+        if ($dossier !== '' && is_dir($dossier)) {
+            return $dossier;
+        }
+        $candidats = glob($this->dir().'/INPG_BDD_*') ?: [];
+        rsort($candidats); // INPG_BDD_072025 avant INPG_BDD_062024
+        foreach ($candidats as $c) {
+            if (is_dir($c)) {
+                return $c;
+            }
+        }
+
+        throw new RuntimeException('Dossier INPG introuvable (PORTAIL_INPG_DIR / portail.inpn.inpg_dossier).');
+    }
+
+    /**
+     * Attributs des sites INPG (inpg_data_site.csv.csv) dénormalisés via les
+     * tables de codes (inpg_code_*.csv) : id_site_inpg → attributs.
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    private function attrsInpg(string $dir): array
+    {
+        $codes = $this->codesInpg($dir);
+
+        // Territoire par site via inpg_data_site_departement.csv (INSEEDxx → dept → territoire).
+        $territoires = [];
+        $fichierDep = $dir.'/inpg_data_site_departement.csv.csv';
+        if (is_file($fichierDep)) {
+            foreach ($this->csv->iterate($fichierDep) as $rec) {
+                $site = trim((string) ($rec['id_site_inpg'] ?? ''));
+                $dep = $this->spatial->codeCommune($rec['cd_sig_dep'] ?? null);
+                if ($site !== '' && $dep !== null) {
+                    $territoires[$site] ??= $this->territoireDeDept(substr($dep, 0, 2) === '97' ? substr($dep, 0, 3) : substr($dep, 0, 2));
+                }
+            }
+        }
+
+        $attrs = [];
+        foreach ($this->csv->iterate($dir.'/inpg_data_site.csv.csv') as $rec) {
+            $id = trim((string) ($rec['id_site_inpg'] ?? ''));
+            if ($id === '') {
+                continue;
+            }
+            $metier = trim((string) ($rec['identifiant_metier'] ?? ''));
+            $etat = $this->intOuNull($rec['id_etat'] ?? null);
+            $rarete = $this->intOuNull($rec['id_rarete'] ?? null);
+            $phenom = $this->intOuNull($rec['id_phenom_geol'] ?? null);
+            $gilges = $this->intOuNull($rec['id_gilges'] ?? null);
+            $unite = $this->intOuNull($rec['id_unite_superficie'] ?? null);
+            $attrs[$id] = [
+                'id' => $id,
+                'identifiant_permanent' => $this->nonVide($rec['identifiant_permanent'] ?? null),
+                'identifiant_metier' => $metier,
+                'nom' => $this->utf8(trim((string) ($rec['lb_site'] ?? ''))),
+                'niv_diffusion' => (int) ($this->intOuNull($rec['id_niv_diffusion'] ?? null) ?? 2),
+                'superficie_saisie' => $this->decimal($rec['superficie_saisie'] ?? null),
+                'justif_superficie' => $this->nonVide($this->utf8((string) ($rec['justif_superficie'] ?? ''))),
+                'unite_superficie' => $unite !== null ? ($codes['unite'][$unite] ?? null) : null,
+                'etat' => $etat !== null ? ($codes['etat'][$etat] ?? null) : null,
+                'present_succincte' => $this->nonVide($this->utf8((string) ($rec['present_succincte'] ?? ''))),
+                'descr_phys' => $this->nonVide($this->utf8((string) ($rec['descr_phys'] ?? ''))),
+                'descr_geol' => $this->nonVide($this->utf8((string) ($rec['descr_geol'] ?? ''))),
+                'itineraire' => $this->nonVide($this->utf8((string) ($rec['itineraire'] ?? ''))),
+                'gilges' => $gilges !== null ? ($codes['gilges'][$gilges] ?? null) : null,
+                'phenom_geol' => $phenom !== null ? ($codes['phenom'][$phenom] ?? null) : null,
+                'interet_hist_geol' => $this->nonVide($this->utf8((string) ($rec['interet_hist_geol'] ?? ''))),
+                'rarete' => $rarete !== null ? ($codes['rarete'][$rarete] ?? null) : null,
+                'comment_eval' => $this->nonVide($this->utf8((string) ($rec['comment_eval'] ?? ''))),
+                'vuln_nat' => $this->nonVide($this->utf8((string) ($rec['vuln_nat'] ?? ''))),
+                'menace_anthrop' => $this->nonVide($this->utf8((string) ($rec['menace_anthrop'] ?? ''))),
+                'suivi_protec' => $this->nonVide($this->utf8((string) ($rec['suivi_protec'] ?? ''))),
+                'comment_gnrl_menace' => $this->nonVide($this->utf8((string) ($rec['comment_gnrl_menace'] ?? ''))),
+                'date_crea_site' => $this->dateIso($rec['date_creat_site'] ?? null),
+                'date_prem_visite' => $this->dateIso($rec['date_prem_visite'] ?? null),
+                'date_der_visite' => $this->dateIso($rec['date_der_visite'] ?? null),
+                'date_modif' => $this->dateIso($rec['date_modif'] ?? null),
+                'ref_carto' => $this->nonVide($rec['ref_carto'] ?? null),
+                'territoire' => $territoires[$id] ?? 'metrop',
+                'url_inpn' => $metier !== '' ? (string) config('portail.urls.inpg').$metier : null,
+            ];
+        }
+
+        return $attrs;
+    }
+
+    /**
+     * Tables de codes INPG (inpg_code_*.csv) : id → libellé (ou tableau pour
+     * la stratigraphie et la bibliographie).
+     *
+     * @return array<string, array<int|string, string|array>>
+     */
+    private function codesInpg(string $dir): array
+    {
+        $lire = function (string $fichier, string $cle, callable $valeur) use ($dir): array {
+            $map = [];
+            if (! is_file($dir.'/'.$fichier)) {
+                return $map;
+            }
+            foreach ($this->csv->iterate($dir.'/'.$fichier) as $rec) {
+                $id = $this->intOuNull($rec[$cle] ?? null);
+                if ($id !== null) {
+                    $map[$id] = $valeur($rec);
+                }
+            }
+
+            return $map;
+        };
+
+        $interets = $lire('inpg_code_interet.csv.csv', 'id_interet', fn ($r) => $this->utf8(trim((string) ($r['lb_interet'] ?? ''))));
+        // Relation intérêt → intérêt supérieur : id_interet_interet_sup → [interet, sup].
+        $interetSup = [];
+        if (is_file($dir.'/inpg_code_interet_interet_sup.csv.csv')) {
+            foreach ($this->csv->iterate($dir.'/inpg_code_interet_interet_sup.csv.csv') as $r) {
+                $idRel = $this->intOuNull($r['id_interet_interet_sup'] ?? null);
+                $idInt = $this->intOuNull($r['id_interet'] ?? null);
+                $idSup = $this->intOuNull($r['id_interet_sup'] ?? null);
+                if ($idRel !== null) {
+                    $interetSup[$idRel] = [
+                        'interet' => $idInt !== null ? ($interets[$idInt] ?? null) : null,
+                        'sup' => $idSup !== null ? ($interets[$idSup] ?? null) : null,
+                    ];
+                }
+            }
+        }
+
+        return [
+            'etat' => $lire('inpg_code_etat.csv.csv', 'id_etat', fn ($r) => $this->utf8(trim((string) ($r['lb_etat'] ?? '')))),
+            'rarete' => $lire('inpg_code_rarete.csv.csv', 'id_rarete', fn ($r) => $this->utf8(trim((string) ($r['lb_rarete'] ?? '')))),
+            'phenom' => $lire('inpg_code_phenom_geol.csv.csv', 'id_phenom_geol', fn ($r) => $this->utf8(trim((string) ($r['lb_phenom_geol'] ?? '')))),
+            'gilges' => $lire('inpg_code_gilges.csv.csv', 'id_gilges', fn ($r) => $this->utf8(trim((string) ($r['def_gilges'] ?? '')))),
+            'unite' => $lire('inpg_code_unite_superficie.csv.csv', 'id_unite_superficie', fn ($r) => $this->utf8(trim((string) ($r['lb_unite_superficie'] ?? '')))),
+            'interet' => $interets,
+            'interet_sup' => $interetSup,
+            'zonage_ref' => $lire('inpg_code_zonage_ref.csv.csv', 'id_zonage_ref', fn ($r) => $this->utf8(trim((string) ($r['lb_zonage_ref'] ?? '')))),
+            'strati' => $lire('inpg_code_strati.csv.csv', 'id_strati', fn ($r) => [
+                'lb' => $this->utf8(trim((string) ($r['lb_fr_strati'] ?? ''))),
+                'age_inf' => $this->decimal($r['age_inf'] ?? null),
+                'age_sup' => $this->decimal($r['age_sup'] ?? null),
+            ]),
+            'type_doc' => $lire('inpg_code_type_doc.csv.csv', 'id_type_doc', fn ($r) => $this->utf8(trim((string) ($r['lb_type_doc'] ?? '')))),
+            'accessib' => $lire('inpg_code_accessib.csv.csv', 'id_accessib', fn ($r) => $this->utf8(trim((string) ($r['lb_accessib'] ?? '')))),
+            'typologie' => $lire('inpg_code_typologie.csv.csv', 'id_typologie', fn ($r) => $this->utf8(trim((string) ($r['lb_typologie'] ?? '')))),
+            'type_note' => $lire('inpg_code_type_note.csv.csv', 'id_type_note', fn ($r) => $this->utf8(trim((string) ($r['lb_type_note'] ?? '')))),
+            'biblio' => $lire('inpg_code_biblio.csv.csv', 'id_biblio', function ($r) {
+                $auteurs = $this->utf8(trim((string) ($r['auteurs'] ?? '')));
+                $titre = $this->utf8(trim((string) ($r['titre'] ?? '')));
+                $annee = trim((string) ($r['annee_publi'] ?? ''));
+                $ref = $this->utf8(trim((string) ($r['reference'] ?? '')));
+                $txt = trim($auteurs.($annee !== '' ? ' ('.$annee.')' : '').'. '.$titre.($ref !== '' ? ' '.$ref : ''), '. ');
+
+                return $txt === '' ? null : $txt;
+            }),
+            'carte_geol' => $lire('inpg_code_carte_geol.csv.csv', 'id_carte_geol', fn ($r) => $this->nonVide($this->utf8(trim((string) ($r['lb_carte_geol'] ?? ''))).' '.trim((string) ($r['num_carte_geol'] ?? '')))),
+            'carte_ign' => $lire('inpg_code_carte_ign.csv.csv', 'id_carte_ign', fn ($r) => $this->nonVide($this->utf8(trim((string) ($r['lb_carte_ign'] ?? ''))).' '.trim((string) ($r['num_carte_ign'] ?? '')))),
+            'carte_marine' => $lire('inpg_code_carte_marine.csv.csv', 'id_carte_marine', fn ($r) => $this->nonVide($this->utf8(trim((string) ($r['lb_carte_marine'] ?? ''))).' '.trim((string) ($r['num_carte_marine'] ?? '')))),
+        ];
+    }
+
+    /** Territoire INPG depuis un code département (971→glp, 973→guf, 2A/2B/971-976…). */
+    private function territoireDeDept(string $dept): string
+    {
+        return match ($dept) {
+            '971' => 'glp',
+            '972' => 'mtq',
+            '973' => 'guf',
+            '974' => 'reu',
+            '975' => 'spm',
+            '976' => 'myt',
+            default => 'metrop',
+        };
+    }
+
+    /**
+     * Staging PostGIS des shapefiles SIG_INPG : un fichier par territoire,
+     * SRS explicite (les OM sont en UTM, la détection par bbox ne suffit
+     * pas). Seuls les sites connus du référentiel d'attributs sont chargés.
+     * Les sites confidentiels (niv_diffusion = 1) n'ont en principe pas de
+     * géométrie diffusée — on ne charge de toute façon que les ids du CSV.
+     *
+     * @param  array<int, string>  $idsConnus
+     * @param  callable(int): void  $tick
+     * @return array{0: int, 1: array<string, string>} [nb géométries, id → territoire]
+     */
+    private function stagingInpg(string $dir, ?callable $tick, array $idsConnus): array
+    {
+        $connus = array_flip($idsConnus);
+        $this->spatial->creerStaging('portail_tmp_inpg');
+        $nb = 0;
+        $territoires = [];
+        $lot = [];
+        foreach (self::INPG_SRS as $territoire => $srs) {
+            $shp = $dir.'/SIG_INPG/inpg_sig_'.$territoire.'.shp';
+            if (! is_file($shp)) {
+                continue;
+            }
+            $reader = new ShapefileReader($shp);
+            foreach ($reader->records() as $rec) {
+                $id = trim((string) ($rec['attrs']['id_site_in'] ?? ''));
+                if ($id === '' || ! isset($connus[$id]) || ($rec['wkt'] ?? null) === null) {
+                    continue;
+                }
+                $territoires[$id] = $territoire;
+                $lot[] = [
+                    'id' => $id,
+                    'famille' => 'inpg',
+                    'nom' => null,
+                    'superficie_ref' => null,
+                    'srs' => $srs,
+                    'wkt' => $rec['wkt'],
+                ];
+                if (count($lot) >= 50) { // lots de 50, comme le GPKG AP (jamais tout en mémoire)
+                    $this->spatial->insererStaging('portail_tmp_inpg', $lot);
+                    $nb += count($lot);
+                    $lot = [];
+                    if ($tick !== null) {
+                        $tick($nb);
+                    }
+                }
+            }
+            if ($lot !== []) {
+                $this->spatial->insererStaging('portail_tmp_inpg', $lot);
+                $nb += count($lot);
+                $lot = [];
+            }
+        }
+
+        return [$nb, $territoires];
+    }
+
+    /**
+     * Écrit les sites du périmètre dans inpg_sites (rechargement intégral,
+     * les FK des pivots cascadent). superficie_ha / bbox remplies ensuite
+     * par reporterMesures pour les sites géométriques.
+     *
+     * @param  array<string, array<string, mixed>>  $attrs
+     * @param  array<int, string>  $ids
+     * @param  array<string, string>  $territoires  id → territoire (staging)
+     */
+    private function ecrireInpgSites(array $attrs, array $ids, array $territoires): void
+    {
+        DB::table('inpg_sites')->delete();
+        $chunk = [];
+        foreach ($ids as $id) {
+            if (! isset($attrs[$id])) {
+                continue;
+            }
+            $a = $attrs[$id];
+            $chunk[] = $a + [
+                'territoire' => $territoires[$id] ?? $a['territoire'],
+                'superficie_ha' => null,
+                'bbox_min_lat' => null,
+                'bbox_max_lat' => null,
+                'bbox_min_lng' => null,
+                'bbox_max_lng' => null,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ];
+            if (count($chunk) >= self::BATCH) {
+                DB::table('inpg_sites')->insert($chunk);
+                $chunk = [];
+            }
+        }
+        if ($chunk !== []) {
+            DB::table('inpg_sites')->insert($chunk);
+        }
+    }
+
+    /**
+     * Périmètre attributaire (mode sans PostGIS, ou complément des sites sans
+     * géométrrie) : sites rattachés à une commune du département courant via
+     * inpg_data_site_commune.csv (cd_sig_com INSEECxxxxx → code INSEE).
+     *
+     * @param  array<int, string>  $idsConnus
+     * @return array<int, string>
+     */
+    private function perimetreInpgAttributs(string $dir, ?string $dept, array $idsConnus): array
+    {
+        $connus = array_flip($idsConnus);
+        $fichier = $dir.'/inpg_data_site_commune.csv.csv';
+        if (! is_file($fichier)) {
+            return $dept === null ? $idsConnus : [];
+        }
+        $inseeDept = null;
+        if ($dept !== null) {
+            $inseeDept = array_flip(DB::table('communes')->where('dept', $dept)->pluck('insee')->all());
+        }
+        $ids = [];
+        foreach ($this->csv->iterate($fichier) as $rec) {
+            $site = trim((string) ($rec['id_site_inpg'] ?? ''));
+            if ($site === '' || ! isset($connus[$site])) {
+                continue;
+            }
+            if ($inseeDept !== null) {
+                $insee = $this->spatial->codeCommune($rec['cd_sig_com'] ?? null);
+                if ($insee === null || ! isset($inseeDept[$insee])) {
+                    continue;
+                }
+            }
+            $ids[$site] = $site;
+        }
+
+        return $dept === null ? $idsConnus : array_values($ids);
+    }
+
+    /**
+     * Pivot communes depuis inpg_data_site_commune.csv (mode attributs seuls,
+     * sans PostGIS : pas de surfaces calculées, null partout). En mode spatial,
+     * c'est croiser() qui remplit le pivot avec les vraies mesures.
+     *
+     * @param  array<int, string>  $idsPerimetre
+     */
+    private function ecrireInpgCommunesCsv(string $dir, array $idsPerimetre): void
+    {
+        DB::table('inpg_communes')->delete();
+        $perimetre = array_flip($idsPerimetre);
+        $fichier = $dir.'/inpg_data_site_commune.csv.csv';
+        if (! is_file($fichier)) {
+            return;
+        }
+        $chunk = [];
+        foreach ($this->csv->iterate($fichier) as $rec) {
+            $site = trim((string) ($rec['id_site_inpg'] ?? ''));
+            if ($site === '' || ! isset($perimetre[$site])) {
+                continue;
+            }
+            $insee = $this->spatial->codeCommune($rec['cd_sig_com'] ?? null);
+            // FK vers communes : ne garder que les communes du référentiel.
+            if ($insee === null || ! DB::table('communes')->where('insee', $insee)->exists()) {
+                continue;
+            }
+            $chunk[] = [
+                'site_id' => $site,
+                'insee' => $insee,
+                'surface_ha' => null,
+                'part_zonage' => null,
+                'part_commune' => null,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ];
+            if (count($chunk) >= self::BATCH) {
+                DB::table('inpg_communes')->insert($chunk);
+                $chunk = [];
+            }
+        }
+        if ($chunk !== []) {
+            DB::table('inpg_communes')->insert($chunk);
+        }
+    }
+
+    /**
+     * Tables pivot INPG du périmètre : intérêts, zonages réglementaires
+     * liés, stratigraphie, documents, lieux-dits, notes, bibliographie,
+     * accessibilité, typologies, cartes. Rechargement intégral.
+     * Les informateurs (personnes physiques) ne sont jamais importés.
+     *
+     * @param  array<int, string>  $idsPerimetre
+     * @param  callable(int): void  $tick
+     * @return array<string, int>
+     */
+    private function ecrireInpgPivots(string $dir, array $idsPerimetre, ?callable $tick): array
+    {
+        $perimetre = array_flip($idsPerimetre);
+        $codes = $this->codesInpg($dir);
+        $maj = function (string $table, string $fichier, callable $ligne) use ($dir, $perimetre, $tick, $codes): int {
+            DB::table($table)->delete();
+            if (! is_file($dir.'/'.$fichier)) {
+                return 0;
+            }
+            $chunk = [];
+            $nb = 0;
+            foreach ($this->csv->iterate($dir.'/'.$fichier) as $rec) {
+                $site = trim((string) ($rec['id_site_inpg'] ?? ''));
+                if ($site === '' || ! isset($perimetre[$site])) {
+                    continue;
+                }
+                $row = $ligne($rec, $site, $codes);
+                if ($row === null) {
+                    continue;
+                }
+                $chunk[] = $row;
+                if (count($chunk) >= self::BATCH) {
+                    DB::table($table)->insert($chunk);
+                    $nb += count($chunk);
+                    $chunk = [];
+                    if ($tick !== null) {
+                        $tick($nb);
+                    }
+                }
+            }
+            if ($chunk !== []) {
+                DB::table($table)->insert($chunk);
+                $nb += count($chunk);
+            }
+
+            return $nb;
+        };
+
+        $retour = [];
+        // Le pivot porte id_interet_interet_sup : l'intérêt et son supérieur
+        // se lisent dans la relation (code_interet_interet_sup).
+        $retour['interets'] = $maj('inpg_interets', 'inpg_data_site_interet.csv.csv', function ($r, $site, $c) {
+            $idRel = $this->intOuNull($r['id_interet_interet_sup'] ?? null);
+            $rel = $idRel !== null ? ($c['interet_sup'][$idRel] ?? null) : null;
+
+            return [
+                'site_id' => $site,
+                'interet' => is_array($rel) ? (string) ($rel['interet'] ?? '') : '',
+                'interet_sup' => is_array($rel) ? $rel['sup'] : null,
+                'justif' => $this->nonVide($this->utf8((string) ($r['justif'] ?? ''))),
+            ];
+        });
+        $retour['zonage_ref'] = $maj('inpg_zonage_ref', 'inpg_data_site_zonage_ref.csv.csv', function ($r, $site, $c) {
+            $id = $this->intOuNull($r['id_zonage_ref'] ?? null);
+
+            return [
+                'site_id' => $site,
+                'zonage_ref' => $id !== null ? ($c['zonage_ref'][$id] ?? '') : '',
+                'reference' => $this->nonVide($this->utf8((string) ($r['reference'] ?? ''))),
+                'commentaire' => $this->nonVide($this->utf8((string) ($r['commentaire'] ?? ''))),
+            ];
+        });
+        $retour['strati'] = $maj('inpg_strati', 'inpg_data_site_strati.csv.csv', function ($r, $site, $c) {
+            $id = $this->intOuNull($r['id_strati'] ?? null);
+            $s = $id !== null ? ($c['strati'][$id] ?? null) : null;
+
+            return [
+                'site_id' => $site,
+                'strati' => is_array($s) ? ($s['lb'] ?? '') : '',
+                'age_inf' => is_array($s) ? $s['age_inf'] : null,
+                'age_sup' => is_array($s) ? $s['age_sup'] : null,
+            ];
+        });
+        $retour['documents'] = $maj('inpg_documents', 'inpg_data_doc.csv.csv', function ($r, $site, $c) {
+            $type = $this->intOuNull($r['id_type_doc'] ?? null);
+
+            return [
+                'site_id' => $site,
+                'lb_doc' => $this->nonVide($this->utf8((string) ($r['lb_doc'] ?? ''))),
+                'legende_doc' => $this->nonVide($this->utf8((string) ($r['legende_doc'] ?? ''))),
+                'type_doc' => $type !== null ? ($c['type_doc'][$type] ?? null) : null,
+                'diff_doc' => (int) ($this->intOuNull($r['id_diff_doc'] ?? null) ?? 3),
+                'path_doc' => $this->nonVide($r['path_doc'] ?? null),
+            ];
+        });
+        $retour['lieudits'] = $maj('inpg_lieudits', 'inpg_data_lieudit.csv.csv', fn ($r, $site) => [
+            'site_id' => $site,
+            'lb_lieudit' => $this->utf8(trim((string) ($r['lb_lieudit'] ?? ''))),
+        ]);
+        $retour['notes'] = $maj('inpg_notes', 'inpg_data_site_type_note.csv.csv', function ($r, $site, $c) {
+            $id = $this->intOuNull($r['id_type_note'] ?? null);
+
+            return [
+                'site_id' => $site,
+                'type_note' => $id !== null ? ($c['type_note'][$id] ?? '') : '',
+                'note' => $this->nonVide($this->utf8((string) ($r['note'] ?? ''))),
+                'note_pond' => $this->decimal($r['note_pond'] ?? null),
+            ];
+        });
+        $retour['biblio'] = $maj('inpg_biblio', 'inpg_data_site_biblio.csv.csv', function ($r, $site, $c) {
+            $id = $this->intOuNull($r['id_biblio'] ?? null);
+
+            return [
+                'site_id' => $site,
+                'biblio' => ($id !== null ? ($c['biblio'][$id] ?? null) : null) ?? '',
+            ];
+        });
+        $retour['accessibilites'] = $maj('inpg_accessibilites', 'inpg_data_site_accessib.csv.csv', function ($r, $site, $c) {
+            $id = $this->intOuNull($r['id_accessib'] ?? null);
+
+            return [
+                'site_id' => $site,
+                'accessib' => $id !== null ? ($c['accessib'][$id] ?? '') : '',
+            ];
+        });
+        $retour['typologies'] = $maj('inpg_typologies', 'inpg_data_site_typologie.csv.csv', function ($r, $site, $c) {
+            $id = $this->intOuNull($r['id_typologie'] ?? null);
+
+            return [
+                'site_id' => $site,
+                'typologie' => $id !== null ? ($c['typologie'][$id] ?? '') : '',
+            ];
+        });
+        // Cartes : trois fichiers alimentent la même table (purge unique).
+        DB::table('inpg_cartes')->delete();
+        $nbCartes = 0;
+        foreach ([
+            ['inpg_data_site_carte_geol.csv.csv', 'id_carte_geol', 'geol', 'carte_geol'],
+            ['inpg_data_site_carte_ign.csv.csv', 'id_carte_ign', 'ign', 'carte_ign'],
+            ['inpg_data_site_carte_marine.csv.csv', 'id_carte_marine', 'marine', 'carte_marine'],
+        ] as [$fichier, $champId, $type, $cleCodes]) {
+            if (! is_file($dir.'/'.$fichier)) {
+                continue;
+            }
+            $chunk = [];
+            foreach ($this->csv->iterate($dir.'/'.$fichier) as $rec) {
+                $site = trim((string) ($rec['id_site_inpg'] ?? ''));
+                if ($site === '' || ! isset($perimetre[$site])) {
+                    continue;
+                }
+                $id = $this->intOuNull($rec[$champId] ?? null);
+                $chunk[] = ['site_id' => $site, 'type_carte' => $type, 'carte' => $id !== null ? ($codes[$cleCodes][$id] ?? '') : ''];
+                if (count($chunk) >= self::BATCH) {
+                    DB::table('inpg_cartes')->insert($chunk);
+                    $nbCartes += count($chunk);
+                    $chunk = [];
+                }
+            }
+            if ($chunk !== []) {
+                DB::table('inpg_cartes')->insert($chunk);
+                $nbCartes += count($chunk);
+            }
+        }
+        $retour['cartes'] = $nbCartes;
+
+        return $retour;
+    }
+
+    // ==================================================================
     // Écritures définitives
     // ==================================================================
 

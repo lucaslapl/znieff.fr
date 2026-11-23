@@ -8,6 +8,7 @@ export const FAMSTYLE = {
     z2: ['#3d6b4a', '#24422e'],
     nat: ['#3a7ca5', '#234e6b'],
     ap: ['#7b4fa0', '#4a2d63'],
+    inpg: ['#b0763a', '#6e4a1f'], // géologie : ocre
 };
 
 export const FAMLABEL = {
@@ -15,6 +16,7 @@ export const FAMLABEL = {
     z2: 'ZNIEFF II',
     nat: 'Natura 2000',
     ap: 'Aire protégée',
+    inpg: 'Site géologique (INPG)',
     commune: 'Contours communaux',
 };
 
@@ -67,7 +69,7 @@ export function styleOf(famille) {
 // Fiche du portail pour un identifiant de zone (lien réel, pas de hash —
 // navigation complète : les popups Leaflet sont du HTML brut).
 export function ficheHref(famille, id) {
-    const base = { z1: '/znieff/', z2: '/znieff/', nat: '/natura/', ap: '/ap/' }[famille];
+    const base = { z1: '/znieff/', z2: '/znieff/', nat: '/natura/', ap: '/ap/', inpg: '/geologie/' }[famille];
     return base + id;
 }
 
@@ -88,6 +90,7 @@ export function communePopup(props) {
 const FICHIER_DEPT = {
     z1: 'znieff-z1.geojson',
     z2: 'znieff-z2.geojson',
+    inpg: 'inpg.geojson',
     nat: 'natura.geojson',
     ap: 'ap.geojson',
     commune: 'communes.geojson',
@@ -105,6 +108,7 @@ export function deptSurcouches(dept) {
         { famille: 'z1', label: FAMLABEL.z1, url: base + FICHIER_DEPT.z1 },
         { famille: 'nat', label: FAMLABEL.nat, url: base + FICHIER_DEPT.nat },
         { famille: 'ap', label: FAMLABEL.ap, url: base + FICHIER_DEPT.ap },
+        { famille: 'inpg', label: FAMLABEL.inpg, url: base + FICHIER_DEPT.inpg },
     ];
 }
 

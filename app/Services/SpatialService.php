@@ -259,6 +259,7 @@ class SpatialService
             'zonage_communes' => ['zonages', 'id'],
             'natura_communes' => ['natura_sites', 'code'],
             'ap_communes' => ['aires_protegees', 'id'],
+            'inpg_communes' => ['inpg_sites', 'id'],
             default => throw new \InvalidArgumentException("Pivot inconnu : {$pivotTable}"),
         };
 

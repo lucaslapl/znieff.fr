@@ -7,6 +7,7 @@ use App\Support\Chapeaux;
 use App\Support\Croisements;
 use App\Support\Especes;
 use App\Support\Exports;
+use App\Support\Inpg;
 use App\Support\Recherche;
 use Illuminate\Database\Eloquent\Builder as EloquentBuilder;
 use Illuminate\Http\Request;
@@ -78,6 +79,7 @@ class CommuneController extends Controller
         $zonages = Croisements::zonagesCommune($commune->insee);
         $natura = Croisements::naturaCommune($commune->insee);
         $aires = Croisements::airesCommune($commune->insee);
+        $inpg = Inpg::sitesCommune($commune->insee); // sites publics uniquement (filtre Inpg)
         $voisines = $commune->voisinesAvecDistance();
         // Compteurs d'espèces déterminantes (hors confidentielles — filtre
         // absolu dans App\Support\Especes) par zonage, et espèces/habitats
@@ -137,6 +139,12 @@ class CommuneController extends Controller
                 'surface_ha' => Chapeaux::ha($a['surface_ha']),
                 'part_commune' => Chapeaux::pct($a['part_commune']),
             ], $aires),
+            'inpg' => array_map(fn (array $s) => [
+                'id' => $s['identifiant_metier'],
+                'nom' => $s['nom'],
+                'surface_ha' => $s['surface_ha'] !== null ? Chapeaux::ha($s['surface_ha']) : null,
+                'part_commune' => $s['part_commune'] !== null ? Chapeaux::pct($s['part_commune']) : null,
+            ], $inpg),
             'voisines' => $voisines->map(fn (array $v) => [
                 'slug' => (string) $v['commune']->slug,
                 'nom' => (string) $v['commune']->nom,
@@ -145,6 +153,7 @@ class CommuneController extends Controller
             'nbZonages' => count($zonages),
             'nbNatura' => count($natura),
             'nbAires' => count($aires),
+            'nbInpg' => count($inpg),
         ]);
     }
 

@@ -32,7 +32,8 @@ const zonagesTxt = (c) => {
     return parties.join(' + ') || 'aucun';
 };
 
-const abUrl = (slug) => `https://observatoire-abc.fr/commune/${slug}`;
+// Fiche ABC de l'Observatoire : /commune/{code INSEE} (pas le slug — 404 sinon).
+const abUrl = (insee) => `https://observatoire-abc.fr/commune/${insee}`;
 </script>
 
 <template>
@@ -90,7 +91,7 @@ const abUrl = (slug) => `https://observatoire-abc.fr/commune/${slug}`;
                             <td>{{ c.population ?? '—' }}</td>
                             <td>{{ zonagesTxt(c) }}</td>
                             <td>
-                                <a v-if="c.has_abc" :href="abUrl(c.slug)" target="_blank" rel="noopener" class="badge abc">ABC ↗</a>
+                                <a v-if="c.has_abc" :href="abUrl(c.insee)" target="_blank" rel="noopener" class="badge abc">ABC ↗</a>
                                 <span v-else class="liste-note">pas d'ABC</span>
                             </td>
                         </tr>

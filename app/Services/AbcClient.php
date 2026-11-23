@@ -26,11 +26,10 @@ class AbcClient
             return null;
         }
 
-        $base = rtrim((string) config('portail.abc_api.base'), '/');
         $reponse = Http::timeout(120)
             ->connectTimeout(30)
             ->acceptJson()
-            ->get($base.'/../abc.geojson');
+            ->get((string) config('portail.abc_api.geojson'));
 
         if ($reponse->failed()) {
             Log::warning('ABC API indisponible (badges ABC ignorés).', [
@@ -41,7 +40,8 @@ class AbcClient
         }
 
         // Structure GeoJsonService de l'Observatoire : une feature par
-        // commune, le code INSEE dans les propriétés (tolérant au nom).
+        // commune (ou par couple ABC–commune), le code INSEE dans les
+        // propriétés sous « code_commune » (tolérant au nom).
         $codes = [];
         foreach ($reponse->json('features', []) as $feature) {
             $props = is_array($feature['properties'] ?? null) ? $feature['properties'] : [];
@@ -65,7 +65,7 @@ class AbcClient
      */
     private function code(array $props): ?string
     {
-        foreach (['insee', 'code_insee', 'code', 'insee_com'] as $cle) {
+        foreach (['code_commune', 'insee', 'code_insee', 'code', 'insee_com'] as $cle) {
             $v = strtoupper(trim((string) ($props[$cle] ?? '')));
             if (preg_match('/^([0-9]{2}|2A|2B)[0-9]{3}$/', $v)) {
                 return $v;

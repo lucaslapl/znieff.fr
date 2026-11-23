@@ -236,6 +236,10 @@ return [
     'abc_api' => [
         'enabled' => env('ABC_API_ENABLED', true),
         'base' => env('ABC_API_BASE', 'https://observatoire-abc.fr/api/v1'),
+        // GeoJSON « une feature par commune » : liste complète des
+        // communes couvertes (malgré son nom, ce n'est pas sous /api/v1 —
+        // un chemin avec des segments '..' renverrait un 404).
+        'geojson' => env('ABC_API_GEOJSON_URL', 'https://observatoire-abc.fr/api/abc.geojson'),
         // Une seule requête de liste ; endpoint paginé éventuel.
         'per_page' => 500,
     ],

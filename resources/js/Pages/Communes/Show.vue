@@ -18,7 +18,8 @@ const props = defineProps({
     nbAires: { type: Number, required: true },
 });
 
-const abUrl = (slug) => `https://observatoire-abc.fr/commune/${slug}`;
+// Fiche ABC de l'Observatoire : /commune/{code INSEE} (pas le slug — 404 sinon).
+const abUrl = (insee) => `https://observatoire-abc.fr/commune/${insee}`;
 </script>
 
 <template>
@@ -39,7 +40,7 @@ const abUrl = (slug) => `https://observatoire-abc.fr/commune/${slug}`;
                 </p>
                 <p v-if="commune.has_abc">
                     <BadgeFamille classe="abc" label="ABC" />
-                    <a :href="abUrl(commune.slug)" target="_blank" rel="noopener">
+                    <a :href="abUrl(commune.insee)" target="_blank" rel="noopener">
                         Voir l'ABC de {{ commune.nom }} sur l'Observatoire des ABC ↗
                     </a>
                 </p>

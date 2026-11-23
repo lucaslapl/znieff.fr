@@ -125,7 +125,7 @@ class GeologieController extends Controller
                 'ref_carto' => $site->ref_carto !== null && $site->ref_carto !== '' ? (string) $site->ref_carto : null,
                 'territoire' => (string) $site->territoire,
                 'url_inpn' => $site->url_inpn !== null ? (string) $site->url_inpn : null,
-                'geojson' => '/geo/inpg/'.$site->id.'.geojson',
+                'geojson' => '/geo/inpg/'.$site->identifiant_metier.'.geojson',
             ],
             'chapeau' => $chapeau,
             'interets' => Inpg::interets($site->id),

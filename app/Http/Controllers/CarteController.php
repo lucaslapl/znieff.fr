@@ -82,13 +82,24 @@ class CarteController extends Controller
     // ------------------------------------------------------------------
 
     /**
-     * « 104 départements » du référentiel COG (config portail).
+     * « 104 départements » du référentiel COG (config portail), restreints
+     * aux départements présents en base. L'import --dept est destructif :
+     * en local la base ne couvre qu'un périmètre partiel — proposer hors
+     * carte un département sans données exposerait les GeoJSON statiques
+     * résiduels et des fiches introuvables. En production (France entière
+     * importée) la liste est complète.
      *
      * @return array<string, string>
      */
     private function departements(): array
     {
-        return array_change_key_case((array) config('portail.departements'), CASE_UPPER);
+        $config = array_change_key_case((array) config('portail.departements'), CASE_UPPER);
+        $presents = Commune::query()->select('dept')->distinct()
+            ->pluck('dept')
+            ->map(fn ($dept) => (string) $dept)
+            ->all();
+
+        return array_intersect_key($config, array_flip($presents));
     }
 
     /**

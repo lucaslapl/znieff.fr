@@ -20,6 +20,7 @@ use Illuminate\Support\Facades\Schema;
  *   public/geo/zonages/z2/{id}.geojson
  *   public/geo/natura/{code}.geojson
  *   public/geo/ap/{id}.geojson
+ *   public/geo/inpg/{identifiant_metier}.geojson  fiche d'un site INPG
  *   public/geo/communes/{insee}.geojson        contour d'une commune (fiche)
  *   public/geo/manifest.json                   versions + inventaire
  *
@@ -67,6 +68,42 @@ class GeojsonExportService
     ];
 
     /**
+     * familles dont la fiche est adressée par une clé différente de l'id
+     * de staging : pour l'INPG, le staging porte l'id_site_inpg numérique
+     * (côté SIG INPG) alors que la fiche du portail est /geologie/{identifiant_metier}
+     * (ex. NAQ0004) — l'export joint la table attributaire pour poser la
+     * bonne clé dans les propriétés GeoJSON : [table jointe, colonne de
+     * rattachement au staging (id), colonne clé d'URL].
+     */
+    private const CLES_METIER = ['inpg' => ['inpg_sites', 'id', 'identifiant_metier']];
+
+    /**
+     * SELECT de la clé identifiante d'une feature : l'id de staging, sauf
+     * pour les familles à clé métier (INPG) où l'on passe par la jointure
+     * attributaire posée par fromAvecCle().
+     */
+    private function colonneIdentifiant(string $famille): string
+    {
+        return isset(self::CLES_METIER[$famille])
+            ? 'cle.'.self::CLES_METIER[$famille][2]
+            : 'z.id';
+    }
+
+    /**
+     * FROM complet d'une famille : la table de staging, plus la jointure
+     * attributaire quand la clé d'URL diffère de l'id de staging (INPG).
+     */
+    private function fromAvecCle(string $famille, string $staging): string
+    {
+        if (! isset(self::CLES_METIER[$famille])) {
+            return $staging.' z';
+        }
+        [$table, $colonne] = self::CLES_METIER[$famille];
+
+        return $staging.' z JOIN '.$table.' cle ON cle.'.$colonne.' = z.id';
+    }
+
+    /**
      * Surcouche d'une famille pour un département : uniquement les zones
      * qui intersectent au moins une commune du département (via la table
      * pivot, codes INSEE — pas de calcul spatial ici).
@@ -82,14 +119,16 @@ class GeojsonExportService
         $decimales = (int) config('portail.geojson.decimales');
 
         // Une requête par famille : les zones du dept, chaque géométrie
-        // simplifiée à sa tolérance, les petites zones en point.
+        // simplifiée à sa tolérance, les petites zones en point. Pour
+        // l'INPG, la clé posée dans les propriétés est l'identifiant
+        // métier (clé d'URL de la fiche), pas l'id numérique du staging.
         $lignes = DB::select(
-            'SELECT z.id, z.nom, ROUND(z.superficie_calc_ha::numeric, 2) AS superficie_ha,'
+            'SELECT '.$this->colonneIdentifiant($famille).' AS id, z.nom, ROUND(z.superficie_calc_ha::numeric, 2) AS superficie_ha,'
             ." CASE WHEN z.superficie_calc_ha < {$seuilPoint}"
             ."   THEN ST_AsGeoJSON(ST_Transform(ST_PointOnSurface(z.geom), 4326), {$decimales})"
             ."   ELSE ST_AsGeoJSON(ST_Transform(ST_SimplifyPreserveTopology(z.geom, {$tolerance}), 4326), {$decimales})"
             .' END AS geometry'
-            ." FROM {$staging} z"
+            .' FROM '.$this->fromAvecCle($famille, $staging)
             .' WHERE z.famille = ?'
             .'   AND z.superficie_calc_ha >= 0'
             .'   AND z.id IN ('
@@ -197,7 +236,9 @@ class GeojsonExportService
     }
 
     /**
-     * Fichier objet d'une zone (fiches ZNIEFF/Natura/AP).
+     * Fichier objet d'une zone (fiches ZNIEFF/Natura/AP/INPG). Pour
+     * l'INPG, $id est l'id de staging (id_site_inpg numérique) — le
+     * fichier est écrit sous l'identifiant métier, clé d'URL de la fiche.
      */
     public function objet(string $famille, string $id): bool
     {
@@ -208,19 +249,19 @@ class GeojsonExportService
         $decimales = (int) config('portail.geojson.decimales');
 
         $ligne = DB::selectOne(
-            'SELECT z.id, z.nom, ROUND(z.superficie_calc_ha::numeric, 2) AS superficie_ha,'
+            'SELECT '.$this->colonneIdentifiant($famille).' AS id, z.nom, ROUND(z.superficie_calc_ha::numeric, 2) AS superficie_ha,'
             ." CASE WHEN z.superficie_calc_ha < {$seuilPoint}"
             ."   THEN ST_AsGeoJSON(ST_Transform(ST_PointOnSurface(z.geom), 4326), {$decimales})"
             ."   ELSE ST_AsGeoJSON(ST_Transform(ST_SimplifyPreserveTopology(z.geom, {$tolerance}), 4326), {$decimales})"
             .' END AS geometry'
-            ." FROM {$staging} z WHERE z.famille = ? AND z.id = ?",
+            .' FROM '.$this->fromAvecCle($famille, $staging).' WHERE z.famille = ? AND z.id = ?',
             [$famille, $id]
         );
         if ($ligne === null) {
             return false;
         }
 
-        return $this->ecrire(self::DOSSIER_OBJET[$famille]."/{$id}.geojson", [
+        return $this->ecrire(self::DOSSIER_OBJET[$famille]."/{$ligne->id}.geojson", [
             'type' => 'Feature',
             'properties' => [
                 'famille' => $famille,

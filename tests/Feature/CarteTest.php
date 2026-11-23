@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Inertia\Testing\AssertableInertia;
 use Tests\Concerns\SemeFiches;
 use Tests\TestCase;
@@ -33,8 +34,10 @@ class CarteTest extends TestCase
             ->where('dept', null)
             ->where('focus', null)
             ->where('meta.canonical', route('carte.index'))
+            // Seuls les départements présents en base sont proposés
+            // (l'import --dept est destructif) : ici, l'Eure seul.
             ->where('departements.27', 'Eure')
-            ->where('departements.2A', 'Corse-du-Sud')
+            ->missing('departements.2A')
         );
     }
 
@@ -48,6 +51,15 @@ class CarteTest extends TestCase
             );
 
         // Codes INSEE paddés : la casse ne compte que pour 2A/2B.
+        // (Ajout d'une commune corse : la carte ne propose que des
+        // départements présents en base.)
+        DB::table('communes')->insert([
+            'insee' => '2A037',
+            'slug' => 'grosseto-prugna',
+            'nom' => 'Grosseto-Prugna',
+            'dept' => '2A',
+            'dept_nom' => 'Corse-du-Sud',
+        ]);
         $this->get('/carte?dept=2a')->assertOk()
             ->assertInertia(fn (AssertableInertia $page) => $page->where('dept', '2A'));
     }

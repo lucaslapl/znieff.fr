@@ -61,6 +61,8 @@ const sources = computed(() => Object.entries(versions.value).map(([cle, v]) => 
                 <dd>Code officiel géographique (INSEE), geo.api.gouv.fr (Codes postaux), référentiel AdminExpress (IGN)</dd>
                 <dt>Atlas de la biodiversité communale</dt>
                 <dd>Observatoire des ABC — lien d'une commune ABC vers sa fiche sur observatoire-abc.fr</dd>
+                <dt>Producteurs de données (SINP)</dt>
+                <dd><Link :href="route('organismes.index')">Organismes adhérents au SINP ↗</Link> — référentiel INPN des structures qui alimentent les inventaires rediffusés ici</dd>
             </dl>
         </div>
 

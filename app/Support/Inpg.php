@@ -49,8 +49,11 @@ final class Inpg
         }
         if ($q !== null && $q !== '') {
             $query->where(function ($w) use ($q) {
-                $w->where('nom', 'ilike', '%'.$q.'%')
-                    ->orWhere('identifiant_metier', 'ilike', $q.'%');
+                // Insensible à la casse, portable Postgres/SQLite (tests) :
+                // LOWER(...) LIKE, jamais « ilike » (inconnu de SQLite).
+                $like = '%'.mb_strtolower($q).'%';
+                $w->whereRaw('LOWER(nom) LIKE ?', [$like])
+                    ->orWhereRaw('LOWER(identifiant_metier) LIKE ?', [mb_strtolower($q).'%']);
             });
         }
 

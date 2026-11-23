@@ -66,6 +66,12 @@ return [
         // HABREF_* sous <inpn.dir>.
         'habref_dossier' => env('PORTAIL_HABREF_DIR', base_path('data/inpn-data/HABREF_07')),
 
+        // Référentiel des organismes adhérents au SINP (producteurs de
+        // données, INPN) : ref_organismes_a_plat_*.csv — page /organismes.
+        // Le dossier est versionné : repli sur le plus récent glob ORGANISMES
+        // sous <inpn.dir>.
+        'organismes_dossier' => env('PORTAIL_ORGANISMES_DIR', base_path('data/inpn-data/ORGANISMES')),
+
         // Versions des référentiels, affichées en pied de page et sur la page
         // Données & méthodologie. Date de la base diffusée par l'INPN.
         'versions' => [
@@ -79,6 +85,7 @@ return [
             'inpg' => 'inventaire national du patrimoine géologique INPG (INPN/MNHN) — juillet 2025',
             'pdf' => 'fiches PDF des ZNIEFF (INPN/MNHN) — diffusion INPN',
             'habref' => 'référentiel national des habitats HABREF (MNHN) — v7.0, août 2025',
+            'organismes' => 'référentiel des organismes adhérents au SINP (INPN) — septembre 2024',
         ],
     ],
 

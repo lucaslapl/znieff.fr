@@ -214,6 +214,9 @@ class SitemapController extends Controller
             route('znieff.index'),
             route('natura.index'),
             route('ap.index'),
+            route('geologie.index'),
+            route('habitats.index'),
+            route('organismes.index'),
         ];
 
         foreach ($departements as $dept) {

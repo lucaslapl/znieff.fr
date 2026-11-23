@@ -23,7 +23,7 @@ use Illuminate\Support\Facades\DB;
 class PortailImportInpnCommand extends Command
 {
     protected $signature = 'portail:import-inpn
-        {--source=all : znieff|natura|aires|sensibilite|bdc|inpg|pdf|habref|all}
+        {--source=all : znieff|natura|aires|sensibilite|bdc|inpg|pdf|habref|organismes|all}
         {--dept= : un seul département (mode test, ex. 27) — périmètre de table destructif}
         {--skip-geojson : ne pas (ré)générer les surcouches GeoJSON}';
 
@@ -39,7 +39,7 @@ class PortailImportInpnCommand extends Command
         $dept = $this->option('dept') !== null ? (string) $this->option('dept') : null;
         $avecGeojson = ! $this->option('skip-geojson');
 
-        if (! in_array($source, ['znieff', 'natura', 'aires', 'sensibilite', 'bdc', 'inpg', 'pdf', 'habref', 'all'], true)) {
+        if (! in_array($source, ['znieff', 'natura', 'aires', 'sensibilite', 'bdc', 'inpg', 'pdf', 'habref', 'organismes', 'all'], true)) {
             $this->error("Source inconnue : {$source} (znieff|natura|aires|sensibilite|bdc|inpg|pdf|all)");
 
             return self::FAILURE;
@@ -119,6 +119,14 @@ class PortailImportInpnCommand extends Command
             $this->info('HABREF v7.0 — référentiel habitats (MNHN)…');
             $retour = $inpn->importHabref($dept, $progression);
             $this->afficher('habref', $retour, ['hic', 'unites', 'corresp', 'taxons', 'taxons_sans_cdref']);
+        }
+
+        // Référentiel des organismes adhérents au SINP : national, hors
+        // périmètre --dept (page /organismes « producteurs de données »).
+        if (in_array($source, ['organismes', 'all'], true)) {
+            $this->info('Organismes adhérents au SINP…');
+            $retour = $inpn->importOrganismes($progression);
+            $this->afficher('organismes', $retour, ['organismes']);
         }
 
         $this->info('Import INPN terminé.');

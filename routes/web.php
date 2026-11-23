@@ -9,6 +9,7 @@ use App\Http\Controllers\GeologieController;
 use App\Http\Controllers\HabitatController;
 use App\Http\Controllers\HomeController;
 use App\Http\Controllers\NaturaSiteController;
+use App\Http\Controllers\OrganismeController;
 use App\Http\Controllers\RechercheController;
 use App\Http\Controllers\SitemapController;
 use App\Http\Controllers\ZonageController;
@@ -43,6 +44,7 @@ Route::get('/natura', [NaturaSiteController::class, 'index'])->name('natura.inde
 Route::get('/ap', [AireProtegeeController::class, 'index'])->name('ap.index');
 Route::get('/geologie', [GeologieController::class, 'index'])->name('geologie.index');
 Route::get('/habitats', [HabitatController::class, 'index'])->name('habitats.index');
+Route::get('/organismes', [OrganismeController::class, 'index'])->name('organismes.index');
 
 // Recherche transverse (searchbar de l'accueil) : redirection vers la
 // fiche en cas de correspondance exacte, sinon résultats par section.

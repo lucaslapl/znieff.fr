@@ -2596,6 +2596,89 @@ class InpnImportService
     }
 
     // ==================================================================
+    // Référentiel des organismes adhérents au SINP (producteurs de données)
+    // ==================================================================
+
+    /**
+     * Organismes adhérents au SINP (ref_organismes_a_plat_*.csv, INPN) :
+     * référentiel national complet (pas de périmètre --dept), rechargé
+     * intégralement (idempotent). Coordonnées personnelles (mail, téléphone,
+     * adresse) JAMAIS importées — page /organismes « producteurs de données ».
+     *
+     * @param  callable(int): void  $tick
+     * @return array{organismes: int}
+     */
+    public function importOrganismes(?callable $tick = null): array
+    {
+        $dir = $this->dossierOrganismes();
+        $fichier = null;
+        foreach (glob($dir.'/ref_organismes_a_plat_*.csv', GLOB_NOSORT) ?: [] as $f) {
+            if (is_file($f)) {
+                $fichier = $f;
+                break;
+            }
+        }
+        if ($fichier === null) {
+            throw new RuntimeException("Référentiel des organismes introuvable : {$dir}/ref_organismes_a_plat_*.csv");
+        }
+
+        DB::table('organismes')->delete(); // rechargement intégral (idempotent)
+        $chunk = [];
+        $nb = 0;
+        foreach ($this->csv->iterate($fichier) as $rec) {
+            $id = trim((string) ($rec['id'] ?? ''));
+            if ($id === '') {
+                continue;
+            }
+            $chunk[] = [
+                'id' => $id,
+                'libelle_court' => $this->utf8((string) ($rec['libelle_court'] ?? '')),
+                'libelle_long' => $this->nonVide($this->utf8((string) ($rec['libelle_long'] ?? ''))),
+                'domaines' => $this->nonVide($this->utf8((string) ($rec['domaines'] ?? ''))),
+                'zones' => $this->nonVide($this->utf8((string) ($rec['zones'] ?? ''))),
+                'niveau_adhesion' => $this->nonVide($this->utf8((string) ($rec['niveau_adhesion'] ?? ''))),
+                'statut_organisme' => $this->nonVide($this->utf8((string) ($rec['statut_organisme'] ?? ''))),
+                'type_organisme' => $this->nonVide($this->utf8((string) ($rec['type_organisme'] ?? ''))),
+                'url' => $this->nonVide($this->utf8((string) ($rec['url'] ?? ''))),
+                'date_adhesion' => $this->dateFrOuIso($rec['date_adhesion'] ?? null),
+                'created_at' => now(),
+                'updated_at' => now(),
+            ];
+            if (count($chunk) >= self::BATCH) {
+                DB::table('organismes')->insert($chunk);
+                $nb += count($chunk);
+                $chunk = [];
+                if ($tick !== null) {
+                    $tick($nb);
+                }
+            }
+        }
+        if ($chunk !== []) {
+            DB::table('organismes')->insert($chunk);
+            $nb += count($chunk);
+        }
+
+        $this->registrer('organismes', $nb, (string) config('portail.inpn.versions.organismes'));
+
+        return ['organismes' => $nb];
+    }
+
+    /** Dossier du référentiel des organismes (config, repli <inpn.dir>/ORGANISMES). */
+    private function dossierOrganismes(): string
+    {
+        $dossier = (string) config('portail.inpn.organismes_dossier', '');
+        if ($dossier !== '' && is_dir($dossier)) {
+            return $dossier;
+        }
+        $repli = $this->dir().'/ORGANISMES';
+        if (is_dir($repli)) {
+            return $repli;
+        }
+
+        throw new RuntimeException('Dossier du référentiel des organismes introuvable (PORTAIL_ORGANISMES_DIR / portail.inpn.organismes_dossier).');
+    }
+
+    // ==================================================================
     // Fiches PDF des ZNIEFF (INPN/MNHN)
     // ==================================================================
 
@@ -2855,6 +2938,17 @@ class InpnImportService
         }
 
         return $this->dateIso($value);
+    }
+
+    /** « 31/12/1969 » (JJ/MM/AAAA, référentiel organismes) → « 1969-12-31 ». */
+    private function dateFrOuIso(?string $value): ?string
+    {
+        $v = trim((string) $value);
+        if (preg_match('#^(\d{2})/(\d{2})/(\d{4})$#', $v, $m) === 1) {
+            return checkdate((int) $m[2], (int) $m[1], (int) $m[3]) ? $m[3].'-'.$m[2].'-'.$m[1] : null;
+        }
+
+        return $this->dateIso($v);
     }
 
     /** Échelle de saisie « 25000 » → « 1/25 000 ». */

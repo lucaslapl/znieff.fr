@@ -99,7 +99,44 @@ class EspeceFicheTest extends TestCase
             ->where('espece.nom', 'Picus canus')
             ->where('nbZonages', 0)
             ->has('zonages', 0)
+            // non déterminante et citée par aucun site Natura : aucune commune
+            ->where('nbCommunes', 0)
+            ->has('communes', 0)
         );
+    }
+
+    public function test_fiche_espece_liste_les_communes_ou_le_taxon_est_present(): void
+    {
+        // 3161 (Pluvialis apricaria) : déterminante sur la ZNIEFF 230009093
+        // (communes Louviers 27375 + Acquigny 27003) et citée par le site
+        // Natura FR2300128 (commune Louviers) → 2 communes distinctes.
+        $reponse = $this->get('/espece/3161');
+
+        $reponse->assertOk();
+        $reponse->assertInertia(fn (AssertableInertia $page) => $page
+            ->component('Especes/Show')
+            ->where('nbCommunes', 2)
+            ->where('communes.0.slug', 'acquigny') // tri département puis nom
+            ->where('communes.0.insee', '27003')
+            ->where('communes.1.slug', 'louviers')
+            ->where('communes.1.insee', '27375')
+            ->where('paginationCommunes.total', 2)
+            ->where('paginationCommunes.derniere', 1)
+            ->where('paginationCommunes.page', 1)
+        );
+
+        // page demandée hors bornes → ramenée à la dernière page (pagination serveur)
+        $this->get('/espece/3161?page_communes=99')->assertInertia(fn (AssertableInertia $page) => $page
+            ->where('paginationCommunes.page', 1)
+            ->where('nbCommunes', 2));
+    }
+
+    public function test_communes_espece_ne_comptent_pas_les_citations_confidentielles(): void
+    {
+        // 999001 (Rhinolophus) est confidentielle : aucune fiche (404), et le
+        // compteur de communes exclut ce flag — vérifié via l'API interne.
+        $this->assertFalse(Especes::especeVisible(999001));
+        $this->get('/espece/999001')->assertNotFound();
     }
 
     public function test_cd_ref_inconnu_renvoie_404(): void

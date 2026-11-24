@@ -360,9 +360,229 @@ final class Especes
         ];
     }
 
+    /**
+     * Recherche d'espèces visibles par nom (searchbar de l'accueil) :
+     * nom valide TAXREF, nom cité ou vernaculaire ZNIEFF, nom du FSD
+     * Natura 2000. UNIQUEMENT les taxons de requeteVisibles() — jamais
+     * une espèce sensible (SINP v18) ni confidentielle : le filtre absolu
+     * est posé ici, côté requête, comme pour toutes les lectures.
+     *
+     * @return array<int, array{cd_ref: int, nom: string, vern: ?string, groupe: ?string, nbZonages: int, nbSites: int}>
+     */
+    public static function rechercheEspeces(string $q, int $limite): array
+    {
+        $terme = '%'.$q.'%';
+        $termeMin = '%'.mb_strtolower($q).'%';
+
+        $cdRefs = self::requeteVisibles()
+            ->where(function ($w) use ($terme, $termeMin) {
+                self::likeInsensible($w, 't.nom_valide', $terme, $termeMin);
+                $w->orWhereExists(function ($q2) use ($terme, $termeMin) {
+                    $q2->select(DB::raw(1))
+                        ->from('znieff_especes as e')
+                        ->whereColumn('e.cd_ref', 't.cd_ref')
+                        ->where('e.confidentielle', false)
+                        ->where(function ($w2) use ($terme, $termeMin) {
+                            self::likeInsensible($w2, 'e.nom_cite', $terme, $termeMin);
+                            self::likeInsensible($w2, 'e.nom_vernaculaire', $terme, $termeMin);
+                        });
+                });
+                $w->orWhereExists(function ($q2) use ($terme, $termeMin) {
+                    $q2->select(DB::raw(1))
+                        ->from('natura_especes as n')
+                        ->whereColumn('n.cd_ref', 't.cd_ref')
+                        ->where(function ($w2) use ($terme, $termeMin) {
+                            self::likeInsensible($w2, 'n.nom_scientifique', $terme, $termeMin);
+                            self::likeInsensible($w2, 'n.nom_vernaculaire', $terme, $termeMin);
+                        });
+                });
+            })
+            ->orderBy('t.nom_valide')
+            ->limit($limite)
+            ->pluck('t.cd_ref')
+            ->map(fn ($cd) => (int) $cd)
+            ->all();
+
+        if ($cdRefs === []) {
+            return [];
+        }
+
+        // Noms vernaculaires (ZNIEFF d'abord, puis FSD Natura) et compteurs
+        // (ZNIEFF déterminantes non confidentielles + sites Natura) des taxons trouvés.
+        // DISTINCT + ORDER BY : ne trier que sur des colonnes sélectionnées
+        // (Postgres l'exige, contrairement à SQLite).
+        $verns = DB::table('znieff_especes')
+            ->whereIn('cd_ref', $cdRefs)
+            ->where('confidentielle', false)
+            ->whereNotNull('nom_vernaculaire')
+            ->where('nom_vernaculaire', '!=', '')
+            ->distinct()
+            ->orderBy('cd_ref')
+            ->orderBy('nom_vernaculaire')
+            ->pluck('nom_vernaculaire', 'cd_ref');
+        $vernsNatura = DB::table('natura_especes')
+            ->whereIn('cd_ref', $cdRefs)
+            ->whereNotNull('nom_vernaculaire')
+            ->where('nom_vernaculaire', '!=', '')
+            ->distinct()
+            ->orderBy('cd_ref')
+            ->orderBy('nom_vernaculaire')
+            ->pluck('nom_vernaculaire', 'cd_ref');
+        $nbZonages = DB::table('znieff_especes')
+            ->whereIn('cd_ref', $cdRefs)
+            ->where('determinante', true)
+            ->where('confidentielle', false)
+            ->groupBy('cd_ref')
+            ->select('cd_ref', DB::raw('count(distinct zonage_id) as n'))
+            ->pluck('n', 'cd_ref');
+        $nbSites = DB::table('natura_especes')
+            ->whereIn('cd_ref', $cdRefs)
+            ->groupBy('cd_ref')
+            ->select('cd_ref', DB::raw('count(distinct site_code) as n'))
+            ->pluck('n', 'cd_ref');
+
+        return self::requeteVisibles()
+            ->whereIn('t.cd_ref', $cdRefs)
+            ->orderBy('t.nom_valide')
+            ->get(['t.cd_ref', 't.nom_valide', 't.groupe1_inpn', 't.groupe2_inpn'])
+            ->map(function ($r) use ($verns, $vernsNatura, $nbZonages, $nbSites) {
+                $vern = $verns[$r->cd_ref] ?? $vernsNatura[$r->cd_ref] ?? null;
+                $groupe = $r->groupe2_inpn !== null && $r->groupe2_inpn !== ''
+                    ? (string) $r->groupe2_inpn
+                    : ($r->groupe1_inpn !== null && $r->groupe1_inpn !== '' ? (string) $r->groupe1_inpn : null);
+
+                return [
+                    'cd_ref' => (int) $r->cd_ref,
+                    'nom' => self::textePur((string) $r->nom_valide),
+                    'vern' => $vern !== null ? (string) $vern : null,
+                    'groupe' => $groupe,
+                    'nbZonages' => (int) ($nbZonages[$r->cd_ref] ?? 0),
+                    'nbSites' => (int) ($nbSites[$r->cd_ref] ?? 0),
+                ];
+            })
+            ->all();
+    }
+
+    /**
+     * Correspondance exacte d'un terme avec une espèce visible → son cd_ref
+     * (redirection de la recherche transverse vers /espece/{cd_ref}) :
+     * cd_ref numérique d'abord, puis nom valide TAXREF, puis nom
+     * vernaculaire/scientifique exact (ZNIEFF puis FSD Natura). Retourne
+     * null pour toute espèce sensible (SINP v18) ou confidentielle —
+     * jamais de fiche, jamais de redirection vers une espèce non diffusable.
+     */
+    public static function especeExacte(string $q): ?int
+    {
+        if (ctype_digit($q)) {
+            $cd = (int) $q;
+
+            return self::especeVisible($cd) ? $cd : null;
+        }
+
+        $min = mb_strtolower($q);
+
+        // NB : les correspondances nominales sont toujours dans un groupe
+        // where() — jamais un orWhere nu sur la requête racine, qui
+        // court-circuiterait les whereNotExists de visibilité (précédence
+        // AND/OR) et pourrait exposer un taxon sensible.
+        $r = self::requeteVisibles()
+            ->where(function ($w) use ($q, $min) {
+                $w->where('t.nom_valide', $q)->orWhereRaw('LOWER(t.nom_valide) = ?', [$min]);
+            })
+            ->first(['t.cd_ref']);
+        if ($r !== null) {
+            return (int) $r->cd_ref;
+        }
+
+        $visibles = self::requeteVisibles()->select('t.cd_ref');
+
+        $cd = DB::table('znieff_especes')
+            ->where('confidentielle', false)
+            ->whereIn('cd_ref', $visibles)
+            ->where(function ($w) use ($q, $min) {
+                $w->where('nom_vernaculaire', $q)->orWhereRaw('LOWER(nom_vernaculaire) = ?', [$min]);
+            })
+            ->value('cd_ref');
+        if ($cd !== null) {
+            return (int) $cd;
+        }
+
+        $cd = DB::table('natura_especes')
+            ->whereIn('cd_ref', $visibles)
+            ->where(function ($w) use ($q, $min) {
+                $w->where('nom_vernaculaire', $q)->orWhereRaw('LOWER(nom_vernaculaire) = ?', [$min])
+                    ->orWhere('nom_scientifique', $q)->orWhereRaw('LOWER(nom_scientifique) = ?', [$min]);
+            })
+            ->value('cd_ref');
+
+        return $cd !== null ? (int) $cd : null;
+    }
+
+    /**
+     * Communes où le taxon est présent (fiche espèce) : communes des ZNIEFF
+     * où il est déterminant + communes des sites Natura 2000 qui le citent,
+     * dédoublonnées, paginées côté serveur, triées par département puis nom.
+     *
+     * Filtres absolus posés ici, côté requête : `confidentielle = false`
+     * sur znieff_especes ; la sensibilité SINP v18 est déjà exclue en amont
+     * par especeVisible() (appelant) — un taxon ayant une fiche publique
+     * n'a aucune ligne dans sensibilite_especes, donc aucune commune à
+     * masquer départementalement.
+     *
+     * @return array{total: int, page: int, derniere: int, items: array<int, array{insee: string, slug: string, nom: string, dept: string, reg_nom: ?string}>}
+     */
+    public static function communesEspecePagine(int $cdRef, int $page, int $parPage): array
+    {
+        $query = DB::table('communes as c')
+            ->where(function ($w) use ($cdRef) {
+                $w->whereExists(function ($q) use ($cdRef) {
+                    $q->select(DB::raw(1))
+                        ->from('znieff_especes as e')
+                        ->join('zonage_communes as p', 'p.zonage_id', '=', 'e.zonage_id')
+                        ->whereColumn('p.insee', 'c.insee')
+                        ->where('e.cd_ref', $cdRef)
+                        ->where('e.determinante', true)
+                        ->where('e.confidentielle', false);
+                })->orWhereExists(function ($q) use ($cdRef) {
+                    $q->select(DB::raw(1))
+                        ->from('natura_especes as n')
+                        ->join('natura_communes as p', 'p.site_code', '=', 'n.site_code')
+                        ->whereColumn('p.insee', 'c.insee')
+                        ->where('n.cd_ref', $cdRef);
+                });
+            });
+
+        return self::paginer(
+            $query,
+            $page,
+            $parPage,
+            ['c.insee', 'c.slug', 'c.nom', 'c.dept', 'c.reg_nom'],
+            fn ($r) => [
+                'insee' => (string) $r->insee,
+                'slug' => (string) $r->slug,
+                'nom' => (string) $r->nom,
+                'dept' => (string) $r->dept,
+                'reg_nom' => $r->reg_nom !== null ? (string) $r->reg_nom : null,
+            ],
+            ['c.dept', 'c.nom']
+        );
+    }
+
     // ------------------------------------------------------------------
     // Interne
     // ------------------------------------------------------------------
+
+    /**
+     * Condition LIKE insensible à la casse quel que soit le moteur :
+     * LIKE brut (collation insensible en production MySQL) + LOWER côté
+     * SQL (Postgres local ; SQLite des tests ne baisse que l'ASCII).
+     * $colonne est un nom de colonne interne, jamais une saisie utilisateur.
+     */
+    private static function likeInsensible(Builder $query, string $colonne, string $terme, string $termeMin): void
+    {
+        $query->where($colonne, 'like', $terme)
+            ->orWhereRaw('LOWER('.$colonne.') like ?', [$termeMin]);
+    }
 
     /**
      * Requête de base sur les espèces ZNIEFF visibles : les filtres absolus

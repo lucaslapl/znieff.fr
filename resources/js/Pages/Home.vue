@@ -32,11 +32,11 @@ const nombre = (n) => n.toLocaleString('fr-FR');
                 les documents de référence.
             </p>
             <form class="searchbar" method="get" action="/recherche">
-                <input type="search" name="q" placeholder="Nom d'une commune, d'un département, ou n° de ZNIEFF…" aria-label="Recherche" />
+                <input type="search" name="q" placeholder="Nom d'une commune, d'un département, n° de ZNIEFF ou nom d'espèce…" aria-label="Recherche" />
                 <button class="btn" type="submit">Rechercher</button>
             </form>
             <p class="hint">
-                Exemples : « Louviers », « Eure », « 8526 ».
+                Exemples : « Louviers », « Eure », « 8526 », « Pluvier doré ».
                 <Link :href="route('communes.index')" style="color:#ecd9a8">Parcourir par commune →</Link>
             </p>
         </section>

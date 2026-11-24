@@ -6,7 +6,8 @@ import BadgeFamille from '../../Components/BadgeFamille.vue';
 /**
  * Recherche transverse (itération d) : la searchbar de l'accueil mène
  * ici. Correspondance exacte = redirection directe vers la fiche
- * (commune prioritaire) ; sinon résultats groupés par section, 12
+ * (commune prioritaire, puis ZNIEFF, Natura 2000, aire protégée,
+ * espèce) ; sinon résultats groupés par section, 12
  * max, avec les liens vers les listes complètes filtrées.
  *
  * Page fonctionnelle : noindex, hors sitemap.
@@ -19,6 +20,7 @@ defineProps({
     zonages: { type: Array, required: true },
     natura: { type: Array, required: true },
     aires: { type: Array, required: true },
+    especes: { type: Array, required: true }, // [{ cd_ref, nom, vern, groupe, nbZonages, nbSites }]
     plus: { type: Object, required: true },
     total: { type: Number, required: true },
 });
@@ -46,12 +48,13 @@ const abUrl = (insee) => `https://observatoire-abc.fr/commune/${insee}`;
         <h1>{{ q ? `Résultats de recherche « ${q} »` : 'Rechercher sur le portail' }}</h1>
         <p class="lead">
             Une commune par son nom (ou son code INSEE, son code postal), une ZNIEFF par son
-            identifiant ou son nom, un site Natura 2000, une aire protégée ou un département.
+            identifiant ou son nom, un site Natura 2000, une aire protégée, une espèce par
+            son nom scientifique ou vernaculaire, ou un département.
             Une correspondance exacte mène directement à la fiche.
         </p>
 
         <form method="get" action="/recherche" class="searchbar" style="margin-top:1.1rem">
-            <input type="search" name="q" :value="q" placeholder="Nom d'une commune, d'un département, ou n° de ZNIEFF…" aria-label="Recherche" />
+            <input type="search" name="q" :value="q" placeholder="Nom d'une commune, d'un département, n° de ZNIEFF ou nom d'espèce…" aria-label="Recherche" />
             <button class="btn" type="submit">Rechercher</button>
         </form>
 
@@ -169,6 +172,30 @@ const abUrl = (insee) => `https://observatoire-abc.fr/commune/${insee}`;
             </div>
             <p v-if="plus.aires" class="liste-note">
                 <Link :href="`/ap?q=${encodeURIComponent(q)}`">Toutes les aires protégées correspondantes →</Link>
+            </p>
+        </template>
+
+        <template v-if="especes.length">
+            <h2>Espèces ({{ especes.length }}<template v-if="plus.especes">+</template>)</h2>
+            <div class="plate">
+                <table>
+                    <thead><tr><th>Espèce</th><th>Groupe</th><th>ZNIEFF déterminantes</th><th>Sites Natura 2000</th></tr></thead>
+                    <tbody>
+                        <tr v-for="e in especes" :key="e.cd_ref">
+                            <td>
+                                <Link :href="route('espece.show', e.cd_ref)"><em>{{ e.nom }}</em><template v-if="e.vern"> · {{ e.vern }}</template></Link>
+                                <span class="liste-note"> — cd_ref {{ e.cd_ref }}</span>
+                            </td>
+                            <td>{{ e.groupe ?? '—' }}</td>
+                            <td>{{ e.nbZonages }} ZNIEFF</td>
+                            <td>{{ e.nbSites }} site{{ e.nbSites > 1 ? 's' : '' }}</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <p class="liste-note">
+                Espèces du référentiel INPN (TAXREF) — chaque fiche liste les communes où le taxon est présent.
+                Les espèces sensibles ou confidentielles ne sont jamais recherchables ni affichées.
             </p>
         </template>
     </Layout>

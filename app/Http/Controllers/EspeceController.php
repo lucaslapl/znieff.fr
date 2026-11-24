@@ -13,7 +13,8 @@ use Inertia\Response;
  * Fiche espèce /espece/{cd_ref} (itération P1) : référentiel TAXREF v18
  * (nom valide, groupes, habitat, présence, fiche INPN) + statuts de
  * protection/réglementation BDC v18 + ZNIEFF du périmètre où le taxon est
- * déterminant.
+ * déterminant + communes où il est présent (ZNIEFF déterminantes et
+ * sites Natura 2000, via les pivots précalculés, paginé serveur).
  *
  * Une espèce sensible (référentiel de sensibilité SINP v18) ou flaguée
  * `confidentielle` n'a JAMAIS de fiche : 404 (pas de localisation indirecte
@@ -48,16 +49,21 @@ class EspeceController extends Controller
         $page = max(1, (int) $request->query('page', '1'));
         $zonages = Especes::zonagesEspecePagine($cdRef, $page, self::PAR_PAGE);
         $statuts = Especes::statutsEspece($cdRef);
+        // Communes où le taxon est présent (ZNIEFF déterminantes + sites
+        // Natura 2000, pivots précalculés), paginées serveur.
+        $pageCommunes = max(1, (int) $request->query('page_communes', '1'));
+        $communes = Especes::communesEspecePagine($cdRef, $pageCommunes, self::PAR_PAGE);
         // Habitats HABREF où le taxon est espèce caractéristique (paginé serveur).
         $pageHabitats = max(1, (int) $request->query('page_habitats', '1'));
         $habitats = Habitats::habitatsEspecePagine($cdRef, $pageHabitats, self::PAR_PAGE);
 
         $titre = $vern !== null ? sprintf('%s (%s)', $vern, $nom) : $nom;
         $meta = sprintf(
-            '%s%s : fiche espèce du portail — %d ZNIEFF du référentiel INPN la citent comme déterminante, %d statut(s) de protection ou de réglementation (BDC INPN).',
+            '%s%s : fiche espèce du portail — %d ZNIEFF du référentiel INPN la citent comme déterminante, présentes dans %d communes, %d statut(s) de protection ou de réglementation (BDC INPN).',
             $titre,
             $groupe !== null ? ', '.$groupe : '',
             $zonages['total'],
+            $communes['total'],
             array_sum(array_map(fn (array $g) => count($g['statuts']), $statuts)),
         );
 
@@ -81,6 +87,9 @@ class EspeceController extends Controller
             'zonages' => $zonages['items'],
             'nbZonages' => $zonages['total'],
             'pagination' => $this->paginationFiche('espece.show', ['cd_ref' => $cdRef], $zonages['page'], self::PAR_PAGE, $zonages['total']),
+            'communes' => $communes['items'],
+            'nbCommunes' => $communes['total'],
+            'paginationCommunes' => $this->paginationFiche('espece.show', ['cd_ref' => $cdRef], $communes['page'], self::PAR_PAGE, $communes['total'], 'page_communes'),
             'habitats' => $habitats['items'],
             'nbHabitats' => $habitats['total'],
             'paginationHabitats' => $this->paginationFiche('espece.show', ['cd_ref' => $cdRef], $habitats['page'], self::PAR_PAGE, $habitats['total'], 'page_habitats'),

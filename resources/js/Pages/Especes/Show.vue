@@ -13,6 +13,9 @@ const props = defineProps({
     zonages: { type: Array, required: true }, // [{ id, nom, famille }]
     nbZonages: { type: Number, required: true },
     pagination: { type: Object, required: true },
+    communes: { type: Array, required: true }, // [{ insee, slug, nom, dept, reg_nom }]
+    nbCommunes: { type: Number, required: true },
+    paginationCommunes: { type: Object, required: true }, // ?page_communes=
     habitats: { type: Array, required: true }, // [{ cd_hab, cd_typo, typo, lb_code, nom_fr, type }] — HABREF
     nbHabitats: { type: Number, required: true },
     paginationHabitats: { type: Object, required: true }, // ?page_habitats=
@@ -22,6 +25,7 @@ const page = usePage();
 const versionBdc = computed(() => page.props.site?.referentiels?.bdc?.version ?? '');
 const versionTaxref = computed(() => page.props.site?.referentiels?.taxref?.version ?? '');
 const onlyZonages = ['zonages', 'nbZonages', 'pagination'];
+const onlyCommunes = ['communes', 'nbCommunes', 'paginationCommunes'];
 const onlyHabitats = ['habitats', 'nbHabitats', 'paginationHabitats'];
 
 const presenceFr = computed(() => {
@@ -100,6 +104,22 @@ const presenceFr = computed(() => {
                 </p>
             </div>
             <p v-else class="lead">Aucune ZNIEFF du référentiel importé ne cite ce taxon comme déterminant.</p>
+
+            <h2 id="communes">Communes où le taxon est présent ({{ nbCommunes }})</h2>
+            <div v-if="communes.length > 0" class="plate">
+                <ul class="communes-liste">
+                    <li v-for="c in communes" :key="c.insee">
+                        <Link :href="route('commune.show', c.slug)">{{ c.nom }}</Link>
+                        <small class="hint"> · {{ c.dept }}<template v-if="c.reg_nom"> · {{ c.reg_nom }}</template> · INSEE {{ c.insee }}</small>
+                    </li>
+                </ul>
+                <ListePager :pagination="paginationCommunes" mot="communes" :only="onlyCommunes" />
+                <p class="hint">
+                    Communes des ZNIEFF où le taxon est déterminant et des sites Natura 2000 qui le citent
+                    (pivots précalculés à l'import — hors espèces confidentielles et hors sensibilité SINP).
+                </p>
+            </div>
+            <p v-else class="lead">Aucune commune du référentiel importé ne porte ce taxon (ZNIEFF déterminante ou site Natura 2000).</p>
 
             <h2>Habitats caractéristiques (HABREF, {{ nbHabitats }})</h2>
             <div v-if="habitats.length > 0" class="plate">

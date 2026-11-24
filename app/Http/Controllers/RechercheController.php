@@ -7,6 +7,7 @@ use App\Models\Commune;
 use App\Models\NaturaSite;
 use App\Models\Zonage;
 use App\Support\Chapeaux;
+use App\Support\Especes;
 use App\Support\Recherche;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -18,9 +19,11 @@ use Inertia\Response;
  * terme peut désigner une commune (nom exact — redirection directe
  * vers sa fiche, la promesse « par commune » du portail), un zonage
  * ZNIEFF (identifiant national ou ancien numéro régional : 8526 →
- * 230009093), un site Natura 2000, une aire protégée ou un
- * département (« Eure », « 27 »). Sinon : page de résultats par
- * section, reprenant les mêmes clauses indexées que les listes.
+ * 230009093), un site Natura 2000, une aire protégée, une espèce
+ * (cd_ref TAXREF ou nom exact — jamais une espèce sensible ni
+ * confidentielle, filtre posé côté requête dans App\Support\Especes)
+ * ou un département (« Eure », « 27 »). Sinon : page de résultats
+ * par section, reprenant les mêmes clauses indexées que les listes.
  *
  * Page fonctionnelle, hors sitemap, noindex (pas de contenu dupliqué
  * pour les moteurs). Aucun calcul spatial : uniquement les pivots.
@@ -34,7 +37,7 @@ class RechercheController extends Controller
         $q = Recherche::terme($request->query('q'));
 
         if ($q === '') {
-            return $this->page('', null, [], [], [], [], 0);
+            return $this->page('', null, [], [], [], [], [], 0);
         }
 
         // Correspondance exacte → la fiche (commune d'abord : c'est
@@ -71,6 +74,14 @@ class RechercheController extends Controller
             }
         }
 
+        // Espèce : cd_ref TAXREF exact ou nom exact (vernaculaire compris).
+        // Jamais une espèce sensible (SINP v18) ni confidentielle : le
+        // filtre est posé côté requête dans Especes::especeExacte.
+        $cdRef = Especes::especeExacte($q);
+        if ($cdRef !== null) {
+            return redirect()->route('espece.show', $cdRef);
+        }
+
         // Résultats par section (mêmes clauses que les listes).
         $dept = Recherche::deptDuTerme($q);
 
@@ -78,10 +89,11 @@ class RechercheController extends Controller
         $zonages = $this->zonages($q, self::PAR_SECTION + 1);
         $natura = $this->natura($q, self::PAR_SECTION + 1);
         $aires = $this->aires($q, self::PAR_SECTION + 1);
+        $especes = Especes::rechercheEspeces($q, self::PAR_SECTION + 1);
 
-        $total = count($communes) + count($zonages) + count($natura) + count($aires) + ($dept !== null ? 1 : 0);
+        $total = count($communes) + count($zonages) + count($natura) + count($aires) + count($especes) + ($dept !== null ? 1 : 0);
 
-        return $this->page($q, $dept, $communes, $zonages, $natura, $aires, $total);
+        return $this->page($q, $dept, $communes, $zonages, $natura, $aires, $especes, $total);
     }
 
     // ------------------------------------------------------------------
@@ -245,6 +257,7 @@ class RechercheController extends Controller
      * @param  array<int, array{id: string, famille: string, badge: string, nom: string, num_regional: ?string, superficie_ha: ?string, nbCommunes: int, maj: ?string}>  $zonages
      * @param  array<int, array{code: string, type: string, nom: string, superficie_ha: ?string, nbCommunes: int, maj: ?string}>  $natura
      * @param  array<int, array{id: string, type_code: string, type_nom: string, nom: string, superficie_ha: ?string, nbCommunes: int, maj: ?string}>  $aires
+     * @param  array<int, array{cd_ref: int, nom: string, vern: ?string, groupe: ?string, nbZonages: int, nbSites: int}>  $especes
      */
     private function page(
         string $q,
@@ -253,12 +266,13 @@ class RechercheController extends Controller
         array $zonages,
         array $natura,
         array $aires,
+        array $especes,
         int $total,
     ): Response {
         return Inertia::render('Recherche/Index', [
             'meta' => [
                 'title' => $q !== '' ? sprintf('Recherche « %s »', $q) : 'Rechercher sur le portail',
-                'description' => 'Rechercher une commune, une ZNIEFF, un site Natura 2000, une aire protégée ou un département — inventaire ZNIEFF et patrimoine naturel par commune.',
+                'description' => 'Rechercher une commune, une ZNIEFF, un site Natura 2000, une aire protégée, une espèce ou un département — inventaire ZNIEFF et patrimoine naturel par commune.',
                 'noindex' => true,
             ],
             'q' => $q,
@@ -267,12 +281,14 @@ class RechercheController extends Controller
             'zonages' => array_slice($zonages, 0, self::PAR_SECTION),
             'natura' => array_slice($natura, 0, self::PAR_SECTION),
             'aires' => array_slice($aires, 0, self::PAR_SECTION),
+            'especes' => array_slice($especes, 0, self::PAR_SECTION),
             // une section qui dépasse 12 résultats : lien vers la liste complète filtrée
             'plus' => [
                 'communes' => count($communes) > self::PAR_SECTION,
                 'zonages' => count($zonages) > self::PAR_SECTION,
                 'natura' => count($natura) > self::PAR_SECTION,
                 'aires' => count($aires) > self::PAR_SECTION,
+                'especes' => count($especes) > self::PAR_SECTION,
             ],
             'total' => $total,
         ]);

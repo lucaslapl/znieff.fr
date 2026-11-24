@@ -13,7 +13,9 @@ import { onBeforeUnmount, ref, watch } from 'vue';
  * Sans JS (ou SSR), le formulaire GET natif vers `action` fonctionne
  * tel quel : la searchbar reste utilisable, seule la liste dynamique
  * est absente. Les espèces suggérées sont déjà filtrées côté serveur
- * (jamais de sensible ni de confidentielle).
+ * (jamais de confidentielle) ; une espèce sensible SINP n'est suggérée
+ * que par son nom, en lien externe vers la fiche INPN (item « externe »,
+ * ouvert dans un nouvel onglet — jamais de donnée de présence).
  */
 const props = defineProps({
     action: { type: String, default: '/recherche' },
@@ -25,13 +27,14 @@ const props = defineProps({
 const q = ref(props.value);
 const ouvert = ref(false);
 const chargement = ref(false);
-const suggestions = ref([]); // [{ type, label, sous, url }]
+const suggestions = ref([]); // [{ type, label, sous, url, externe? }]
 const actif = ref(-1);
 
 const typeLabel = {
     dept: 'Département',
     commune: 'Commune',
     espece: 'Espèce',
+    espece_sensible: 'Espèce sensible',
     znieff: 'ZNIEFF',
     natura: 'Natura 2000',
     ap: 'Aire protégée',
@@ -87,7 +90,13 @@ const ferme = () => {
 const choisir = (item) => {
     if (!item || !item.url) return;
     ferme();
-    router.visit(item.url);
+    // item « externe » (ex. espèce sensible → fiche INPN) : nouvel onglet,
+    // jamais de navigation interne (pas de fiche /espece pour un sensible)
+    if (item.externe) {
+        window.open(item.url, '_blank', 'noopener');
+    } else {
+        router.visit(item.url);
+    }
 };
 
 const tousLesResultats = () => {
@@ -156,7 +165,7 @@ onBeforeUnmount(() => {
                 >
                     <span class="s-type">{{ typeLabel[s.type] ?? s.type }}</span>
                     <span class="s-label">
-                        <em v-if="s.type === 'espece'">{{ s.label }}</em>
+                        <em v-if="s.type === 'espece' || s.type === 'espece_sensible'">{{ s.label }}</em>
                         <template v-else>{{ s.label }}</template>
                         <small v-if="s.sous"> · {{ s.sous }}</small>
                     </span>

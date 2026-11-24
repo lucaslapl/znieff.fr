@@ -22,6 +22,7 @@ defineProps({
     natura: { type: Array, required: true },
     aires: { type: Array, required: true },
     especes: { type: Array, required: true }, // [{ cd_ref, nom, vern, groupe, nbZonages, nbSites }]
+    especesSensibles: { type: Array, default: () => [] }, // [{ cd_ref, nom, vern, groupe, url_inpn }] — nom public uniquement, renvoi INPN, jamais de donnée de présence
     plus: { type: Object, required: true },
     total: { type: Number, required: true },
 });
@@ -193,9 +194,28 @@ const abUrl = (insee) => `https://observatoire-abc.fr/commune/${insee}`;
             </div>
             <p class="liste-note">
                 Espèces du référentiel INPN (TAXREF) — chaque fiche liste les communes où le taxon est présent.
-                Les espèces sensibles ou confidentielles ne sont jamais recherchables ni affichées.
+                Les données de présence des espèces sensibles ne sont jamais diffusées (voir ci-dessous) ;
+                les espèces confidentielles ne sont jamais affichées.
                 <Link :href="`/especes?q=${encodeURIComponent(q)}`">Toutes les espèces correspondantes →</Link>
             </p>
+        </template>
+
+        <template v-if="especesSensibles.length">
+            <h2>Espèces sensibles ({{ especesSensibles.length }})</h2>
+            <div class="plate">
+                <p style="margin-top:0">
+                    Ces espèces sont classées <strong>sensibles</strong> par le référentiel SINP de l'INPN :
+                    leurs <strong>données de présence ne sont pas diffusées</strong> sur ce portail
+                    (pas de zonage, pas de commune, pas de compteur). Consultez leur fiche INPN :
+                </p>
+                <ul>
+                    <li v-for="e in especesSensibles" :key="e.cd_ref">
+                        <em>{{ e.nom }}</em><template v-if="e.vern"> · {{ e.vern }}</template>
+                        <span class="liste-note"> — {{ e.groupe ?? 'groupe non renseigné' }} · cd_ref {{ e.cd_ref }}</span>
+                        — <a :href="e.url_inpn" target="_blank" rel="noopener">fiche INPN ↗</a>
+                    </li>
+                </ul>
+            </div>
         </template>
     </Layout>
 </template>

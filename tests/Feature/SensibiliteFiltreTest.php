@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Services\InpnImportService;
 use App\Support\Especes;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -94,4 +95,34 @@ class SensibiliteFiltreTest extends TestCase
         );
     }
 
+    public function test_recherche_sensibles_nom_public_jamais_de_presence(): void
+    {
+        // taxons_ref peuplé (périmètre BDC) comme dans les tests de recherche
+        config([
+            'portail.inpn.bdc_dossier' => base_path('tests/fixtures/inpn-bdc'),
+            'portail.inpn.taxref_dossier' => base_path('tests/fixtures/inpn-taxref'),
+        ]);
+        app(InpnImportService::class)->importBdc();
+
+        // Un taxon sensible SINP (60400, pré-liste nationale) est retrouvé
+        // par son nom — mais UNIQUEMENT le nom + lien INPN : aucune clé de
+        // présence (nbZonages/nbSites), aucun zonage, aucune commune.
+        $rows = Especes::rechercheEspecesSensibles('trit', 10);
+        $this->assertCount(1, $rows);
+        $this->assertSame(60400, $rows[0]['cd_ref']);
+        $this->assertSame('Triturus cristatus', $rows[0]['nom']);
+        $this->assertSame('https://inpn.mnhn.fr/espece/cd_nom/60400', $rows[0]['url_inpn']);
+        $this->assertArrayNotHasKey('nbZonages', $rows[0]);
+        $this->assertArrayNotHasKey('nbSites', $rows[0]);
+
+        // par cd_ref numérique aussi
+        $this->assertCount(1, Especes::rechercheEspecesSensibles('60400', 10));
+
+        // 999001 (flag `confidentielle`) : JAMAIS, même pas son nom.
+        $this->assertSame([], Especes::rechercheEspecesSensibles('rhinolophus', 10));
+        $this->assertSame([], Especes::rechercheEspecesSensibles('999001', 10));
+
+        // terme vide : rien
+        $this->assertSame([], Especes::rechercheEspecesSensibles('', 10));
+    }
 }

@@ -44,7 +44,9 @@ class RechercheController extends Controller
      * borné (5 suggestions par section) dès 3 lettres, mis en cache 5 min
      * et throttlé côté route. Mêmes clauses que la page de résultats ; les
      * espèces passent par Especes::rechercheEspeces (filtre absolu
-     * sensibilités/confidentielles posé côté requête).
+     * sensibilités/confidentielles posé côté requête) et les espèces
+     * sensibles SINP par Especes::rechercheEspecesSensibles (nom public
+     * uniquement, lien externe INPN, jamais de donnée de présence).
      */
     public function suggestions(Request $request): JsonResponse
     {
@@ -76,6 +78,20 @@ class RechercheController extends Controller
                 ];
             }
 
+            // Espèce sensible (SINP v18) : le NOM est public, on le suggère
+            // avec renvoi vers la fiche INPN (lien externe) — jamais de
+            // donnée de présence (pas de compteur, pas de fiche interne).
+            // Jamais un taxon `confidentielle` (filtre côté requête).
+            foreach (Especes::rechercheEspecesSensibles($q, self::PAR_SUGGESTION) as $e) {
+                $sections[] = [
+                    'type' => 'espece_sensible',
+                    'label' => $e['nom'].($e['vern'] !== null ? ' · '.$e['vern'] : ''),
+                    'sous' => trim(($e['groupe'] ?? '').' · espèce sensible — données de présence non diffusées · fiche INPN ↗'),
+                    'url' => $e['url_inpn'],
+                    'externe' => true,
+                ];
+            }
+
             foreach ($this->zonages($q, self::PAR_SUGGESTION) as $z) {
                 $sections[] = ['type' => 'znieff', 'label' => $z['nom'], 'sous' => 'ZNIEFF '.($z['famille'] === 'z1' ? 'I' : 'II').' · '.$z['id'], 'url' => route('znieff.show', $z['id'])];
             }
@@ -99,7 +115,7 @@ class RechercheController extends Controller
         $q = Recherche::terme($request->query('q'));
 
         if ($q === '') {
-            return $this->page('', null, [], [], [], [], [], 0);
+            return $this->page('', null, [], [], [], [], [], [], 0);
         }
 
         // ?tous=1 (« Tous les résultats » de l'autocomplétion de la
@@ -144,8 +160,11 @@ class RechercheController extends Controller
             }
 
             // Espèce : cd_ref TAXREF exact ou nom exact (vernaculaire compris).
-            // Jamais une espèce sensible (SINP v18) ni confidentielle : le
-            // filtre est posé côté requête dans Especes::especeExacte.
+            // Jamais de redirection vers une espèce sensible (SINP v18) ni
+            // confidentielle : le filtre est posé côté requête dans
+            // Especes::especeExacte (la page de résultats affiche alors le
+            // nom de l'espèce sensible avec renvoi INPN, sans donnée de
+            // présence).
             $cdRef = Especes::especeExacte($q);
             if ($cdRef !== null) {
                 return redirect()->route('espece.show', $cdRef);
@@ -160,10 +179,11 @@ class RechercheController extends Controller
         $natura = $this->natura($q, self::PAR_SECTION + 1);
         $aires = $this->aires($q, self::PAR_SECTION + 1);
         $especes = Especes::rechercheEspeces($q, self::PAR_SECTION + 1);
+        $especesSensibles = Especes::rechercheEspecesSensibles($q, self::PAR_SECTION + 1);
 
-        $total = count($communes) + count($zonages) + count($natura) + count($aires) + count($especes) + ($dept !== null ? 1 : 0);
+        $total = count($communes) + count($zonages) + count($natura) + count($aires) + count($especes) + count($especesSensibles) + ($dept !== null ? 1 : 0);
 
-        return $this->page($q, $dept, $communes, $zonages, $natura, $aires, $especes, $total);
+        return $this->page($q, $dept, $communes, $zonages, $natura, $aires, $especes, $especesSensibles, $total);
     }
 
     // ------------------------------------------------------------------
@@ -328,6 +348,7 @@ class RechercheController extends Controller
      * @param  array<int, array{code: string, type: string, nom: string, superficie_ha: ?string, nbCommunes: int, maj: ?string}>  $natura
      * @param  array<int, array{id: string, type_code: string, type_nom: string, nom: string, superficie_ha: ?string, nbCommunes: int, maj: ?string}>  $aires
      * @param  array<int, array{cd_ref: int, nom: string, vern: ?string, groupe: ?string, nbZonages: int, nbSites: int}>  $especes
+     * @param  array<int, array{cd_ref: int, nom: string, vern: ?string, groupe: ?string, url_inpn: string}>  $especesSensibles
      */
     private function page(
         string $q,
@@ -337,6 +358,7 @@ class RechercheController extends Controller
         array $natura,
         array $aires,
         array $especes,
+        array $especesSensibles,
         int $total,
     ): Response {
         return Inertia::render('Recherche/Index', [
@@ -352,6 +374,10 @@ class RechercheController extends Controller
             'natura' => array_slice($natura, 0, self::PAR_SECTION),
             'aires' => array_slice($aires, 0, self::PAR_SECTION),
             'especes' => array_slice($especes, 0, self::PAR_SECTION),
+            // espèces sensibles (SINP v18) : nom uniquement, renvoi fiche INPN,
+            // aucune donnée de présence — pas de lien « tous les résultats »
+            // (la liste /especes les exclut volontairement)
+            'especesSensibles' => array_slice($especesSensibles, 0, self::PAR_SECTION),
             // une section qui dépasse 12 résultats : lien vers la liste complète filtrée
             'plus' => [
                 'communes' => count($communes) > self::PAR_SECTION,

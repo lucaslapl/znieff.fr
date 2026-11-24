@@ -18,8 +18,10 @@ use Tests\TestCase;
  *
  * La graine inclut le référentiel TAXREF/BDC des fixtures (fiches
  * espèces) et une pré-liste nationale de sensibilité pour 60400
- * (Triturus cristatus) : une espèce sensible ou confidentielle ne doit
- * jamais apparaître dans la recherche.
+ * (Triturus cristatus) : une espèce confidentielle n'apparaît jamais
+ * dans la recherche ; une espèce sensible SINP n'y apparaît que par
+ * son nom (section « espèces sensibles », lien INPN, sans aucune donnée
+ * de présence).
  */
 class RechercheTest extends TestCase
 {
@@ -169,21 +171,42 @@ class RechercheTest extends TestCase
             ->where('zonages.0.id', '230009093'));
     }
 
-    public function test_especes_confidentielle_et_sensible_jamais_trouvees(): void
+    public function test_espece_confidentielle_jamais_trouvee(): void
     {
-        // 999001 Rhinolophus : flaguée confidentielle → ni redirection ni résultat.
+        // 999001 Rhinolophus : flaguée confidentielle → ni redirection,
+        // ni résultat, ni même son nom dans l'encadré « espèces sensibles ».
         $this->get('/recherche?q=999001')->assertOk();
         $this->get('/recherche?q=999001')->assertInertia(fn (AssertableInertia $page) => $page
             ->where('total', 0)
-            ->has('especes', 0));
+            ->has('especes', 0)
+            ->has('especesSensibles', 0));
         $this->get('/recherche?q=rhinolophus')->assertInertia(fn (AssertableInertia $page) => $page
             ->where('total', 0)
-            ->has('especes', 0));
+            ->has('especes', 0)
+            ->has('especesSensibles', 0));
+    }
 
+    public function test_espece_sensible_nom_seul_renvoi_inpn_sans_donnee_de_presence(): void
+    {
         // 60400 Triturus cristatus : pré-liste nationale de sensibilité SINP v18.
+        // Pas de redirection vers /espece/60400 (pas de fiche interne), pas
+        // dans la section « espèces » — mais le NOM (public, TAXREF) est
+        // affiché dans « espèces sensibles » avec lien externe INPN, et
+        // JAMAIS de compteur / zonage / commune.
         $this->get('/recherche?q=60400')->assertOk(); // pas de redirection
         $this->get('/recherche?q=triturus')->assertInertia(fn (AssertableInertia $page) => $page
-            ->where('total', 0)
-            ->has('especes', 0));
+            ->where('total', 1)
+            ->has('especes', 0)
+            ->has('especesSensibles', 1)
+            ->where('especesSensibles.0.cd_ref', 60400)
+            ->where('especesSensibles.0.nom', 'Triturus cristatus')
+            ->where('especesSensibles.0.url_inpn', 'https://inpn.mnhn.fr/espece/cd_nom/60400')
+            ->missing('especesSensibles.0.nbZonages')
+            ->missing('especesSensibles.0.nbSites'));
+
+        // par cd_ref numérique aussi
+        $this->get('/recherche?q=60400')->assertInertia(fn (AssertableInertia $page) => $page
+            ->has('especesSensibles', 1)
+            ->where('especesSensibles.0.cd_ref', 60400));
     }
 }

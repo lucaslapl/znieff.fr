@@ -12,7 +12,8 @@ use Tests\TestCase;
  * Autocomplétion de la searchbar (/recherche/suggestions, JSON) :
  * suggestions par section dès 3 lettres (5 max par section), rien en
  * dessous ; les espèces passent par le filtre absolu de visibilité —
- * jamais une espèce sensible (SINP v18) ni confidentielle.
+ * jamais une espèce confidentielle, et une espèce sensible SINP v18
+ * uniquement par son nom, en lien externe INPN (sans donnée de présence).
  */
 class SuggestionsTest extends TestCase
 {
@@ -67,19 +68,36 @@ class SuggestionsTest extends TestCase
         $this->assertSame(route('znieff.show', '230009093'), $zonages[0]['url']);
     }
 
-    public function test_especes_confidentielle_et_sensible_jamais_suggerees(): void
+    public function test_espece_confidentielle_jamais_suggeree(): void
     {
-        foreach (['rhin', 'trit', '999001', '60400'] as $q) {
+        // 999001 Rhinolophus (flag `confidentielle`) : aucune suggestion,
+        // pas même son nom dans l'encadré « espèce sensible ».
+        foreach (['rhin', '999001'] as $q) {
             $sections = $this->getJson('/recherche/suggestions?q='.urlencode($q))->assertOk()->json('sections') ?? [];
-            $urls = array_column($sections, 'url');
-            $this->assertNotContains('/espece/999001', $urls);
-            $this->assertNotContains('/espece/60400', $urls);
-        }
-
-        // aucun item « espèce » du tout pour ces termes
-        foreach (['rhin', 'trit'] as $q) {
-            $sections = $this->getJson('/recherche/suggestions?q='.$q)->assertOk()->json('sections') ?? [];
             $this->assertSame([], array_values(array_filter($sections, fn ($s) => $s['type'] === 'espece')));
+            $this->assertSame([], array_values(array_filter($sections, fn ($s) => $s['type'] === 'espece_sensible')));
+            $this->assertNotContains('/espece/999001', array_column($sections, 'url'));
+        }
+    }
+
+    public function test_espece_sensible_suggeree_par_nom_lien_inpn_externe_sans_presence(): void
+    {
+        // 60400 Triturus cristatus (pré-liste nationale SINP) : suggéré sous
+        // forme d'item « espece_sensible » — lien EXTERNE vers l'INPN,
+        // jamais /espece/60400, jamais de compteur de présence.
+        foreach (['trit', '60400'] as $q) {
+            $sections = $this->getJson('/recherche/suggestions?q='.urlencode($q))->assertOk()->json('sections') ?? [];
+
+            // jamais dans les espèces visibles à fiche interne
+            $this->assertSame([], array_values(array_filter($sections, fn ($s) => $s['type'] === 'espece')));
+            $this->assertNotContains('/espece/60400', array_column($sections, 'url'));
+
+            $sensibles = array_values(array_filter($sections, fn ($s) => $s['type'] === 'espece_sensible'));
+            $this->assertCount(1, $sensibles);
+            $this->assertSame('Triturus cristatus', $sensibles[0]['label']);
+            $this->assertTrue($sensibles[0]['externe']);
+            $this->assertStringStartsWith('https://inpn.mnhn.fr/', $sensibles[0]['url']);
+            $this->assertStringNotContainsString('ZNIEFF', $sensibles[0]['sous'] ?? '');
         }
     }
 }

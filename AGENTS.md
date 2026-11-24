@@ -27,8 +27,15 @@ puis exportées en SQL portable + GeoJSON statiques.
   incompréhension). **Les espèces confidentielles (flag `confidentielle`) ne sont
   JAMAIS affichées ni comptées** : le filtre `where('confidentielle', false)` est
   posé côté requête dans `App\Support\Especes` (listes ET compteurs), jamais côté
-  affichage. Jamais de localisation précise d'espèce sensible. Jamais présenté
-  comme Licence Ouverte 2.0. Code : AGPL-3.0.
+  affichage — même leur nom ne sort jamais. Jamais de localisation précise
+  d'espèce sensible. Jamais présenté comme Licence Ouverte 2.0. Code : AGPL-3.0.
+  **Nuance (recherche transverse uniquement)** : le *nom* d'un taxon sensible
+  SINP v18 (`sensibilite_especes`) est public (TAXREF) — il peut apparaître dans
+  `/recherche` et `/recherche/suggestions` via `Especes::rechercheEspecesSensibles`,
+  avec renvoi vers la fiche INPN (lien externe), mais **jamais** avec une donnée
+  de présence (pas de compteur, pas de zonage, pas de commune, pas de lien
+  interne `/espece/{cd_ref}` — la fiche 404 reste). Les listes `/especes`, les
+  fiches zone/commune et les exports restent strictement filtrées.
 
 ## Conventions UI
 

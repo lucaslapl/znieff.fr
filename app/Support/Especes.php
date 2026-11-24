@@ -18,6 +18,14 @@ use Illuminate\Support\Facades\DB;
  * compteurs. Toute lecture de `znieff_especes` du site passe par cette
  * classe.
  *
+ * NUANCE (recherche transverse uniquement) : le NOM d'un taxon sensible
+ * SINP v18 est une donnée publique (TAXREF) — il peut apparaître dans la
+ * recherche (suggestions + page de résultats) via rechercheEspecesSensibles,
+ * avec renvoi vers la fiche INPN, mais JAMAIS avec une donnée de présence
+ * (pas de compteur, pas de zonage, pas de commune, pas de lien interne
+ * /espece/{cd_ref}). Un taxon flagué `confidentielle` n'apparaît nulle part,
+ * même pas son nom.
+ *
  * Les valeurs sont re-mappées en tableaux PHP typés : les fiches Inertia ne
  * reçoivent jamais de modèles.
  */
@@ -420,6 +428,120 @@ final class Especes
             ->all();
 
         return self::taxonsEnrichis($cdRefs);
+    }
+
+    /**
+     * Recherche de taxons SENSIBLES (présents dans le référentiel SINP v18)
+     * correspondant au terme — réservée à l'encadré de la recherche
+     * transverse (suggestions + page /recherche). Le nom du taxon est
+     * public (TAXREF) : on le renvoie vers la fiche INPN, mais JAMAIS
+     * aucune donnée de présence n'est lue ni renvoyée (pas de compteur,
+     * pas de zonage, pas de commune, pas de lien interne /espece/{cd_ref}).
+     * Un taxon flagué `confidentielle` dans znieff_especes est exclu ici
+     * aussi — même son nom ne sort jamais. Filtres posés côté requête.
+     * Correspondance : cd_ref exact si le terme est numérique, nom valide
+     * TAXREF, nom vernaculaire/scientifique du FSD Natura ou nom
+     * vernaculaire d'une citation ZNIEFF non confidentielle (le nom seul
+     * est public, la citation ne l'est pas).
+     *
+     * @return array<int, array{cd_ref: int, nom: string, vern: ?string, groupe: ?string, url_inpn: string}>
+     */
+    public static function rechercheEspecesSensibles(string $q, int $limite): array
+    {
+        if ($q === '') {
+            return [];
+        }
+
+        $terme = '%'.$q.'%';
+        $termeMin = '%'.mb_strtolower($q).'%';
+
+        $rows = DB::table('taxons_ref as t')
+            ->whereExists(function ($q2) {
+                $q2->select(DB::raw(1))
+                    ->from('sensibilite_especes as s')
+                    ->whereColumn('s.cd_ref', 't.cd_ref');
+            })
+            ->whereNotExists(function ($q2) {
+                $q2->select(DB::raw(1))
+                    ->from('znieff_especes as e')
+                    ->whereColumn('e.cd_ref', 't.cd_ref')
+                    ->where('e.confidentielle', true);
+            })
+            ->where(function ($w) use ($q, $terme, $termeMin) {
+                if (ctype_digit($q)) {
+                    $w->where('t.cd_ref', (int) $q);
+                }
+                // NB : likeInsensible pose where()->orWhereRaw() — le
+                // envelopper dans un orWhere(...) pour ne pas transformer
+                // le where cd_ref ci-dessus en AND (précédence AND/OR).
+                $w->orWhere(function ($w2) use ($terme, $termeMin) {
+                    self::likeInsensible($w2, 't.nom_valide', $terme, $termeMin);
+                });
+                $w->orWhereExists(function ($q2) use ($terme, $termeMin) {
+                    $q2->select(DB::raw(1))
+                        ->from('natura_especes as n')
+                        ->whereColumn('n.cd_ref', 't.cd_ref')
+                        ->where(function ($w2) use ($terme, $termeMin) {
+                            self::likeInsensible($w2, 'n.nom_vernaculaire', $terme, $termeMin);
+                            self::likeInsensible($w2, 'n.nom_scientifique', $terme, $termeMin);
+                        });
+                });
+                $w->orWhereExists(function ($q2) use ($terme, $termeMin) {
+                    $q2->select(DB::raw(1))
+                        ->from('znieff_especes as e')
+                        ->whereColumn('e.cd_ref', 't.cd_ref')
+                        ->where('e.confidentielle', false)
+                        ->where(function ($w2) use ($terme, $termeMin) {
+                            self::likeInsensible($w2, 'e.nom_vernaculaire', $terme, $termeMin);
+                        });
+                });
+            })
+            ->orderBy('t.nom_valide')
+            ->limit($limite)
+            ->get(['t.cd_ref', 't.nom_valide', 't.groupe1_inpn', 't.groupe2_inpn', 't.url_inpn']);
+
+        $cdRefs = $rows->map(fn ($r) => (int) $r->cd_ref)->all();
+        if ($cdRefs === []) {
+            return [];
+        }
+
+        // Nom vernaculaire public : FSD Natura d'abord, puis citation ZNIEFF
+        // non confidentielle (mêmes sources que taxonsEnrichis).
+        $verns = DB::table('natura_especes')
+            ->whereIn('cd_ref', $cdRefs)
+            ->whereNotNull('nom_vernaculaire')
+            ->where('nom_vernaculaire', '!=', '')
+            ->distinct()
+            ->orderBy('cd_ref')
+            ->orderBy('nom_vernaculaire')
+            ->pluck('nom_vernaculaire', 'cd_ref');
+        $vernsZnieff = DB::table('znieff_especes')
+            ->whereIn('cd_ref', $cdRefs)
+            ->where('confidentielle', false)
+            ->whereNotNull('nom_vernaculaire')
+            ->where('nom_vernaculaire', '!=', '')
+            ->distinct()
+            ->orderBy('cd_ref')
+            ->orderBy('nom_vernaculaire')
+            ->pluck('nom_vernaculaire', 'cd_ref');
+
+        return $rows->map(function ($r) use ($verns, $vernsZnieff) {
+            $cdRef = (int) $r->cd_ref;
+            $vern = $verns[$cdRef] ?? $vernsZnieff[$cdRef] ?? null;
+            $groupe = $r->groupe2_inpn !== null && $r->groupe2_inpn !== ''
+                ? (string) $r->groupe2_inpn
+                : ($r->groupe1_inpn !== null && $r->groupe1_inpn !== '' ? (string) $r->groupe1_inpn : null);
+
+            return [
+                'cd_ref' => $cdRef,
+                'nom' => self::textePur((string) $r->nom_valide),
+                'vern' => $vern !== null ? (string) $vern : null,
+                'groupe' => $groupe,
+                'url_inpn' => $r->url_inpn !== null && $r->url_inpn !== ''
+                    ? (string) $r->url_inpn
+                    : 'https://inpn.mnhn.fr/espece/cdref/'.$cdRef,
+            ];
+        })->all();
     }
 
     /**

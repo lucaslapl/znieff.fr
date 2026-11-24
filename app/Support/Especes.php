@@ -419,64 +419,66 @@ final class Especes
             ->map(fn ($cd) => (int) $cd)
             ->all();
 
-        if ($cdRefs === []) {
-            return [];
+        return self::taxonsEnrichis($cdRefs);
+    }
+
+    /**
+     * Liste paginée des espèces visibles (page /especes) : filtre optionnel
+     * ?q= par nom (scientifique TAXREF, nom cité/vernaculaire ZNIEFF, nom
+     * du FSD Natura — LIKE insensible à la casse), tri alphabétique.
+     * UNIQUEMENT les taxons de requeteVisibles() : jamais une espèce
+     * sensible (SINP v18) ni confidentielle, filtre posé côté requête.
+     *
+     * @return array{total: int, page: int, derniere: int, items: array<int, array{cd_ref: int, nom: string, vern: ?string, groupe: ?string, nbZonages: int, nbSites: int}>}
+     */
+    public static function especesPagine(string $q, int $page, int $parPage): array
+    {
+        $query = self::requeteVisibles();
+
+        if ($q !== '') {
+            $terme = '%'.$q.'%';
+            $termeMin = '%'.mb_strtolower($q).'%';
+            $query->where(function ($w) use ($terme, $termeMin) {
+                self::likeInsensible($w, 't.nom_valide', $terme, $termeMin);
+                $w->orWhereExists(function ($q2) use ($terme, $termeMin) {
+                    $q2->select(DB::raw(1))
+                        ->from('znieff_especes as e')
+                        ->whereColumn('e.cd_ref', 't.cd_ref')
+                        ->where('e.confidentielle', false)
+                        ->where(function ($w2) use ($terme, $termeMin) {
+                            self::likeInsensible($w2, 'e.nom_cite', $terme, $termeMin);
+                            self::likeInsensible($w2, 'e.nom_vernaculaire', $terme, $termeMin);
+                        });
+                });
+                $w->orWhereExists(function ($q2) use ($terme, $termeMin) {
+                    $q2->select(DB::raw(1))
+                        ->from('natura_especes as n')
+                        ->whereColumn('n.cd_ref', 't.cd_ref')
+                        ->where(function ($w2) use ($terme, $termeMin) {
+                            self::likeInsensible($w2, 'n.nom_scientifique', $terme, $termeMin);
+                            self::likeInsensible($w2, 'n.nom_vernaculaire', $terme, $termeMin);
+                        });
+                });
+            });
         }
 
-        // Noms vernaculaires (ZNIEFF d'abord, puis FSD Natura) et compteurs
-        // (ZNIEFF déterminantes non confidentielles + sites Natura) des taxons trouvés.
-        // DISTINCT + ORDER BY : ne trier que sur des colonnes sélectionnées
-        // (Postgres l'exige, contrairement à SQLite).
-        $verns = DB::table('znieff_especes')
-            ->whereIn('cd_ref', $cdRefs)
-            ->where('confidentielle', false)
-            ->whereNotNull('nom_vernaculaire')
-            ->where('nom_vernaculaire', '!=', '')
-            ->distinct()
-            ->orderBy('cd_ref')
-            ->orderBy('nom_vernaculaire')
-            ->pluck('nom_vernaculaire', 'cd_ref');
-        $vernsNatura = DB::table('natura_especes')
-            ->whereIn('cd_ref', $cdRefs)
-            ->whereNotNull('nom_vernaculaire')
-            ->where('nom_vernaculaire', '!=', '')
-            ->distinct()
-            ->orderBy('cd_ref')
-            ->orderBy('nom_vernaculaire')
-            ->pluck('nom_vernaculaire', 'cd_ref');
-        $nbZonages = DB::table('znieff_especes')
-            ->whereIn('cd_ref', $cdRefs)
-            ->where('determinante', true)
-            ->where('confidentielle', false)
-            ->groupBy('cd_ref')
-            ->select('cd_ref', DB::raw('count(distinct zonage_id) as n'))
-            ->pluck('n', 'cd_ref');
-        $nbSites = DB::table('natura_especes')
-            ->whereIn('cd_ref', $cdRefs)
-            ->groupBy('cd_ref')
-            ->select('cd_ref', DB::raw('count(distinct site_code) as n'))
-            ->pluck('n', 'cd_ref');
+        $total = (int) (clone $query)->count();
+        $derniere = max(1, (int) ceil($total / $parPage));
+        $page = min(max(1, $page), $derniere);
 
-        return self::requeteVisibles()
-            ->whereIn('t.cd_ref', $cdRefs)
+        $cdRefs = (clone $query)
             ->orderBy('t.nom_valide')
-            ->get(['t.cd_ref', 't.nom_valide', 't.groupe1_inpn', 't.groupe2_inpn'])
-            ->map(function ($r) use ($verns, $vernsNatura, $nbZonages, $nbSites) {
-                $vern = $verns[$r->cd_ref] ?? $vernsNatura[$r->cd_ref] ?? null;
-                $groupe = $r->groupe2_inpn !== null && $r->groupe2_inpn !== ''
-                    ? (string) $r->groupe2_inpn
-                    : ($r->groupe1_inpn !== null && $r->groupe1_inpn !== '' ? (string) $r->groupe1_inpn : null);
-
-                return [
-                    'cd_ref' => (int) $r->cd_ref,
-                    'nom' => self::textePur((string) $r->nom_valide),
-                    'vern' => $vern !== null ? (string) $vern : null,
-                    'groupe' => $groupe,
-                    'nbZonages' => (int) ($nbZonages[$r->cd_ref] ?? 0),
-                    'nbSites' => (int) ($nbSites[$r->cd_ref] ?? 0),
-                ];
-            })
+            ->forPage($page, $parPage)
+            ->pluck('t.cd_ref')
+            ->map(fn ($cd) => (int) $cd)
             ->all();
+
+        return [
+            'total' => $total,
+            'page' => $page,
+            'derniere' => $derniere,
+            'items' => self::taxonsEnrichis($cdRefs),
+        ];
     }
 
     /**
@@ -598,6 +600,75 @@ final class Especes
     {
         $query->where($colonne, 'like', $terme)
             ->orWhereRaw('LOWER('.$colonne.') like ?', [$termeMin]);
+    }
+
+    /**
+     * Taxons visibles pour une liste de cd_ref, enrichis (nom vernaculaire,
+     * groupe, compteurs ZNIEFF déterminantes / sites Natura 2000), triés
+     * par nom valide. Noms vernaculaires : ZNIEFF d'abord (hors
+     * confidentielles), puis FSD Natura.
+     *
+     * @param  array<int, int>  $cdRefs
+     * @return array<int, array{cd_ref: int, nom: string, vern: ?string, groupe: ?string, nbZonages: int, nbSites: int}>
+     */
+    private static function taxonsEnrichis(array $cdRefs): array
+    {
+        if ($cdRefs === []) {
+            return [];
+        }
+
+        // DISTINCT + ORDER BY : ne trier que sur des colonnes sélectionnées
+        // (Postgres l'exige, contrairement à SQLite).
+        $verns = DB::table('znieff_especes')
+            ->whereIn('cd_ref', $cdRefs)
+            ->where('confidentielle', false)
+            ->whereNotNull('nom_vernaculaire')
+            ->where('nom_vernaculaire', '!=', '')
+            ->distinct()
+            ->orderBy('cd_ref')
+            ->orderBy('nom_vernaculaire')
+            ->pluck('nom_vernaculaire', 'cd_ref');
+        $vernsNatura = DB::table('natura_especes')
+            ->whereIn('cd_ref', $cdRefs)
+            ->whereNotNull('nom_vernaculaire')
+            ->where('nom_vernaculaire', '!=', '')
+            ->distinct()
+            ->orderBy('cd_ref')
+            ->orderBy('nom_vernaculaire')
+            ->pluck('nom_vernaculaire', 'cd_ref');
+        $nbZonages = DB::table('znieff_especes')
+            ->whereIn('cd_ref', $cdRefs)
+            ->where('determinante', true)
+            ->where('confidentielle', false)
+            ->groupBy('cd_ref')
+            ->select('cd_ref', DB::raw('count(distinct zonage_id) as n'))
+            ->pluck('n', 'cd_ref');
+        $nbSites = DB::table('natura_especes')
+            ->whereIn('cd_ref', $cdRefs)
+            ->groupBy('cd_ref')
+            ->select('cd_ref', DB::raw('count(distinct site_code) as n'))
+            ->pluck('n', 'cd_ref');
+
+        return self::requeteVisibles()
+            ->whereIn('t.cd_ref', $cdRefs)
+            ->orderBy('t.nom_valide')
+            ->get(['t.cd_ref', 't.nom_valide', 't.groupe1_inpn', 't.groupe2_inpn'])
+            ->map(function ($r) use ($verns, $vernsNatura, $nbZonages, $nbSites) {
+                $vern = $verns[$r->cd_ref] ?? $vernsNatura[$r->cd_ref] ?? null;
+                $groupe = $r->groupe2_inpn !== null && $r->groupe2_inpn !== ''
+                    ? (string) $r->groupe2_inpn
+                    : ($r->groupe1_inpn !== null && $r->groupe1_inpn !== '' ? (string) $r->groupe1_inpn : null);
+
+                return [
+                    'cd_ref' => (int) $r->cd_ref,
+                    'nom' => self::textePur((string) $r->nom_valide),
+                    'vern' => $vern !== null ? (string) $vern : null,
+                    'groupe' => $groupe,
+                    'nbZonages' => (int) ($nbZonages[$r->cd_ref] ?? 0),
+                    'nbSites' => (int) ($nbSites[$r->cd_ref] ?? 0),
+                ];
+            })
+            ->all();
     }
 
     /**

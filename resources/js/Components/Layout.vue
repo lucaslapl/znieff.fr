@@ -30,6 +30,7 @@ defineProps({
                 <Link :href="route('znieff.index')">ZNIEFF</Link>
                 <Link :href="route('natura.index')">Natura 2000</Link>
                 <Link :href="route('ap.index')">Aires protégées</Link>
+                <Link :href="route('especes.index')">Espèces</Link>
                 <Link :href="route('carte.index')">Carte</Link>
                 <Link :href="route('donnees.index')">Données &amp; méthodologie</Link>
             </nav>

@@ -9,8 +9,10 @@ use App\Models\Zonage;
 use App\Support\Chapeaux;
 use App\Support\Especes;
 use App\Support\Recherche;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -32,6 +34,66 @@ class RechercheController extends Controller
 {
     private const PAR_SECTION = 12;
 
+    /** Autocomplétion : seuil de lettres et nombre de suggestions par section. */
+    private const SUGGEST_MIN = 3;
+
+    private const PAR_SUGGESTION = 5;
+
+    /**
+     * Autocomplétion de la searchbar (liste déroulante dynamique) : JSON
+     * borné (5 suggestions par section) dès 3 lettres, mis en cache 5 min
+     * et throttlé côté route. Mêmes clauses que la page de résultats ; les
+     * espèces passent par Especes::rechercheEspeces (filtre absolu
+     * sensibilités/confidentielles posé côté requête).
+     */
+    public function suggestions(Request $request): JsonResponse
+    {
+        $q = Recherche::terme($request->query('q'));
+
+        if (mb_strlen($q) < self::SUGGEST_MIN) {
+            return response()->json(['q' => $q, 'sections' => []]);
+        }
+
+        /** @var array<int, array{type: string, label: string, sous: string, url: string}> $sections */
+        $sections = Cache::remember('portail:suggest:'.md5(mb_strtolower($q)), 300, function () use ($q): array {
+            $sections = [];
+
+            $dept = Recherche::deptDuTerme($q);
+            if ($dept !== null) {
+                $sections[] = ['type' => 'dept', 'label' => $dept['nom'].' ('.$dept['code'].')', 'sous' => 'Département — voir ses communes', 'url' => '/communes?dept='.$dept['code']];
+            }
+
+            foreach ($this->communes($q, self::PAR_SUGGESTION) as $c) {
+                $sections[] = ['type' => 'commune', 'label' => $c['nom'], 'sous' => $c['dept'].($c['reg_nom'] !== null ? ' · '.$c['reg_nom'] : '').' · INSEE '.$c['insee'], 'url' => route('commune.show', $c['slug'])];
+            }
+
+            foreach (Especes::rechercheEspeces($q, self::PAR_SUGGESTION) as $e) {
+                $sections[] = [
+                    'type' => 'espece',
+                    'label' => $e['nom'],
+                    'sous' => trim(($e['vern'] !== null ? $e['vern'].' · ' : '').($e['groupe'] ?? '').' · '.$e['nbZonages'].' ZNIEFF'),
+                    'url' => route('espece.show', $e['cd_ref']),
+                ];
+            }
+
+            foreach ($this->zonages($q, self::PAR_SUGGESTION) as $z) {
+                $sections[] = ['type' => 'znieff', 'label' => $z['nom'], 'sous' => 'ZNIEFF '.($z['famille'] === 'z1' ? 'I' : 'II').' · '.$z['id'], 'url' => route('znieff.show', $z['id'])];
+            }
+
+            foreach ($this->natura($q, self::PAR_SUGGESTION) as $s) {
+                $sections[] = ['type' => 'natura', 'label' => $s['nom'], 'sous' => 'Natura 2000 '.$s['type'].' · '.$s['code'], 'url' => route('natura.show', $s['code'])];
+            }
+
+            foreach ($this->aires($q, self::PAR_SUGGESTION) as $a) {
+                $sections[] = ['type' => 'ap', 'label' => $a['nom'], 'sous' => 'Aire protégée '.$a['type_code'].' · '.$a['id'], 'url' => route('ap.show', $a['id'])];
+            }
+
+            return $sections;
+        });
+
+        return response()->json(['q' => $q, 'sections' => $sections]);
+    }
+
     public function index(Request $request): Response|RedirectResponse
     {
         $q = Recherche::terme($request->query('q'));
@@ -40,46 +102,54 @@ class RechercheController extends Controller
             return $this->page('', null, [], [], [], [], [], 0);
         }
 
-        // Correspondance exacte → la fiche (commune d'abord : c'est
-        // l'entrée principale du portail).
-        $commune = $this->communeExacte($q);
-        if ($commune !== null) {
-            return redirect()->route('commune.show', $commune->slug);
-        }
+        // ?tous=1 (« Tous les résultats » de l'autocomplétion de la
+        // searchbar) : JAMAIS de redirection vers une fiche, même sur
+        // correspondance exacte — l'utilisateur demande explicitement
+        // la liste de tous les résultats.
+        $tous = $request->boolean('tous');
 
-        if (Recherche::estIdentifiantZnieff($q)) {
-            /** @var Zonage|null $zonage */
-            $zonage = Zonage::query()
-                ->where(fn ($w) => $w->where('id', $q)->orWhere('num_regional', $q))
-                ->first(['id']);
-
-            if ($zonage !== null) {
-                return redirect()->route('znieff.show', $zonage->id);
-            }
-        }
-
-        if (Recherche::estCodeInpn($q)) {
-            $code = strtoupper($q);
-
-            /** @var NaturaSite|null $site */
-            $site = NaturaSite::query()->where('code', $code)->first(['code']);
-            if ($site !== null) {
-                return redirect()->route('natura.show', $site->code);
+        if (! $tous) {
+            // Correspondance exacte → la fiche (commune d'abord : c'est
+            // l'entrée principale du portail).
+            $commune = $this->communeExacte($q);
+            if ($commune !== null) {
+                return redirect()->route('commune.show', $commune->slug);
             }
 
-            /** @var AireProtegee|null $aire */
-            $aire = AireProtegee::query()->where('id', $code)->first(['id']);
-            if ($aire !== null) {
-                return redirect()->route('ap.show', $aire->id);
-            }
-        }
+            if (Recherche::estIdentifiantZnieff($q)) {
+                /** @var Zonage|null $zonage */
+                $zonage = Zonage::query()
+                    ->where(fn ($w) => $w->where('id', $q)->orWhere('num_regional', $q))
+                    ->first(['id']);
 
-        // Espèce : cd_ref TAXREF exact ou nom exact (vernaculaire compris).
-        // Jamais une espèce sensible (SINP v18) ni confidentielle : le
-        // filtre est posé côté requête dans Especes::especeExacte.
-        $cdRef = Especes::especeExacte($q);
-        if ($cdRef !== null) {
-            return redirect()->route('espece.show', $cdRef);
+                if ($zonage !== null) {
+                    return redirect()->route('znieff.show', $zonage->id);
+                }
+            }
+
+            if (Recherche::estCodeInpn($q)) {
+                $code = strtoupper($q);
+
+                /** @var NaturaSite|null $site */
+                $site = NaturaSite::query()->where('code', $code)->first(['code']);
+                if ($site !== null) {
+                    return redirect()->route('natura.show', $site->code);
+                }
+
+                /** @var AireProtegee|null $aire */
+                $aire = AireProtegee::query()->where('id', $code)->first(['id']);
+                if ($aire !== null) {
+                    return redirect()->route('ap.show', $aire->id);
+                }
+            }
+
+            // Espèce : cd_ref TAXREF exact ou nom exact (vernaculaire compris).
+            // Jamais une espèce sensible (SINP v18) ni confidentielle : le
+            // filtre est posé côté requête dans Especes::especeExacte.
+            $cdRef = Especes::especeExacte($q);
+            if ($cdRef !== null) {
+                return redirect()->route('espece.show', $cdRef);
+            }
         }
 
         // Résultats par section (mêmes clauses que les listes).

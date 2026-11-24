@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Services\InpnImportService;
 use App\Support\Especes;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Inertia\Testing\AssertableInertia;
 use Tests\Concerns\SemeFiches;
@@ -142,6 +143,66 @@ class EspeceFicheTest extends TestCase
     public function test_cd_ref_inconnu_renvoie_404(): void
     {
         $this->get('/espece/424242')->assertNotFound();
+    }
+
+    public function test_liste_especes_paginee_serveur(): void
+    {
+        // Sans q : toutes les espèces visibles du périmètre (3 taxons :
+        // 1308, 60612, 3161 — 999001 confidentielle et 60400 sensible exclues),
+        // triées par nom valide, indexable (noindex false).
+        $this->get('/especes')->assertOk()->assertInertia(fn (AssertableInertia $page) => $page
+            ->component('Especes/Index')
+            ->where('q', '')
+            ->where('meta.noindex', false)
+            ->where('pagination.total', 3)
+            ->has('especes', 3)
+            ->where('especes.0.cd_ref', 1308)  // Miniopterus schreibersii
+            ->where('especes.1.cd_ref', 60612) // Picus canus
+            ->where('especes.2.cd_ref', 3161)  // Pluvialis apricaria
+        );
+    }
+
+    public function test_liste_especes_filtree_par_nom_incomplet(): void
+    {
+        // Nom incomplet → tous les résultats correspondants, noindex (page fonctionnelle).
+        $this->get('/especes?q=pluvialis')->assertOk()->assertInertia(fn (AssertableInertia $page) => $page
+            ->component('Especes/Index')
+            ->where('q', 'pluvialis')
+            ->where('meta.noindex', true)
+            ->where('pagination.total', 1)
+            ->where('especes.0.cd_ref', 3161)
+            ->where('especes.0.nbZonages', 1)
+            ->where('especes.0.nbSites', 1)
+            ->where('especes.0.vern', 'Pluvier doré')
+        );
+
+        // vernaculaire incomplet (casse quelconque)
+        $this->get('/especes?q=PLUVIER')->assertOk()->assertInertia(fn (AssertableInertia $page) => $page
+            ->where('pagination.total', 1)
+            ->where('especes.0.cd_ref', 3161));
+    }
+
+    public function test_liste_especes_est_mise_en_cache_cinq_minutes(): void
+    {
+        // Le count + les LIKE sur taxons_ref sont coûteux : la page (q, page)
+        // est mise en cache 5 min (les référentiels ne changent qu'à l'import).
+        $this->get('/especes?q=pluvialis')->assertOk();
+        $this->assertTrue(Cache::has('portail:especes:'.md5('pluvialis|1|25')));
+    }
+
+    public function test_liste_especes_ne_contient_jamais_sensibles_ni_confidentielles(): void
+    {
+        $this->get('/especes?q=triturus')->assertOk()->assertInertia(fn (AssertableInertia $page) => $page
+            ->where('pagination.total', 0)
+            ->has('especes', 0));
+
+        $this->get('/especes?q=rhinolophus')->assertOk()->assertInertia(fn (AssertableInertia $page) => $page
+            ->where('pagination.total', 0)
+            ->has('especes', 0));
+
+        $this->get('/especes?q=999001')->assertOk()->assertInertia(fn (AssertableInertia $page) => $page
+            ->where('pagination.total', 0)
+            ->has('especes', 0));
     }
 
     public function test_sitemap_liste_les_fiches_especes_visibles_seulement(): void

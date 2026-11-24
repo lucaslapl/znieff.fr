@@ -148,6 +148,27 @@ class RechercheTest extends TestCase
             ->where('total', 1));
     }
 
+    public function test_tous_les_resultats_desactive_la_redirection_exacte(): void
+    {
+        // Sans ?tous : correspondance exacte → redirection vers la fiche.
+        $this->get('/recherche?q=Pluvialis apricaria')->assertRedirect(route('espece.show', 3161));
+        $this->get('/recherche?q=louviers')->assertRedirect(route('commune.show', 'louviers'));
+
+        // Avec ?tous=1 (« Tous les résultats » de l'autocomplétion de la
+        // searchbar) : page de résultats par section, JAMAIS de redirection.
+        $this->get('/recherche?q=Pluvialis apricaria&tous=1')->assertOk()->assertInertia(fn (AssertableInertia $page) => $page
+            ->component('Recherche/Index')
+            ->where('especes.0.cd_ref', 3161));
+
+        $this->get('/recherche?q=louviers&tous=1')->assertOk()->assertInertia(fn (AssertableInertia $page) => $page
+            ->component('Recherche/Index')
+            ->where('communes.0.slug', 'louviers'));
+
+        $this->get('/recherche?q=8526&tous=1')->assertOk()->assertInertia(fn (AssertableInertia $page) => $page
+            ->component('Recherche/Index')
+            ->where('zonages.0.id', '230009093'));
+    }
+
     public function test_especes_confidentielle_et_sensible_jamais_trouvees(): void
     {
         // 999001 Rhinolophus : flaguée confidentielle → ni redirection ni résultat.

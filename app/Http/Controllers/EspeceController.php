@@ -5,7 +5,9 @@ namespace App\Http\Controllers;
 use App\Support\Chapeaux;
 use App\Support\Especes;
 use App\Support\Habitats;
+use App\Support\Recherche;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -24,6 +26,45 @@ use Inertia\Response;
 class EspeceController extends Controller
 {
     private const PAR_PAGE = 25;
+
+    /**
+     * Liste des espèces visibles (/especes) : pagination serveur, filtre
+     * ?q= par nom scientifique ou vernaculaire. UNIQUEMENT les taxons
+     * ayant une fiche publique (Especes::requeteVisibles) : jamais une
+     * espèce sensible (SINP v18) ni confidentielle. noindex quand un
+     * filtre q est posé (page fonctionnelle, hors sitemap).
+     */
+    public function index(Request $request): Response
+    {
+        $q = Recherche::terme($request->query('q'));
+        $page = max(1, (int) $request->query('page', '1'));
+
+        // Cache 5 min par (q, page) : le count + les LIKE sur taxons_ref
+        // sont coûteux sur l'hébergement mutualisé (les référentiels ne
+        // changent qu'une fois par an à l'import).
+        /** @var array{total: int, page: int, derniere: int, items: array<int, array{cd_ref: int, nom: string, vern: ?string, groupe: ?string, nbZonages: int, nbSites: int}>} $especes */
+        $especes = Cache::remember(
+            'portail:especes:'.md5($q.'|'.$page.'|'.self::PAR_PAGE),
+            300,
+            fn (): array => Especes::especesPagine($q, $page, self::PAR_PAGE),
+        );
+
+        return Inertia::render('Especes/Index', [
+            'meta' => [
+                'title' => $q !== '' ? sprintf('Espèces « %s »', $q) : 'Espèces du portail',
+                'description' => Chapeaux::meta(sprintf(
+                    '%d espèces du référentiel INPN (TAXREF) avec fiche publique — %s. Recherche par nom scientifique ou vernaculaire ; les espèces sensibles ou confidentielles ne sont jamais listées.',
+                    $especes['total'],
+                    $q !== '' ? sprintf('résultats pour « %s »', $q) : 'toutes les espèces du périmètre importé'
+                )),
+                'canonical' => route('especes.index'),
+                'noindex' => $q !== '',
+            ],
+            'q' => $q,
+            'especes' => $especes['items'],
+            'pagination' => $this->paginationListe($especes['page'], self::PAR_PAGE, $especes['total'], $q),
+        ]);
+    }
 
     public function show(Request $request, string $cdRef): Response
     {
@@ -94,5 +135,29 @@ class EspeceController extends Controller
             'nbHabitats' => $habitats['total'],
             'paginationHabitats' => $this->paginationFiche('espece.show', ['cd_ref' => $cdRef], $habitats['page'], self::PAR_PAGE, $habitats['total'], 'page_habitats'),
         ]);
+    }
+
+    /**
+     * Pagination d'une liste pleine page (/especes) : liens GET simples
+     * qui portent le filtre q (appends), crawlables.
+     *
+     * @return array{total: int, page: int, derniere: int, url_precedente: ?string, url_suivante: ?string}
+     */
+    private function paginationListe(int $page, int $parPage, int $total, string $q): array
+    {
+        $derniere = max(1, (int) ceil($total / $parPage));
+        $page = min(max(1, $page), $derniere);
+
+        $url = fn (int $p): ?string => $p >= 1 && $p <= $derniere
+            ? route('especes.index', array_filter(['q' => $q !== '' ? $q : null, 'page' => $p > 1 ? $p : null], fn ($v) => $v !== null))
+            : null;
+
+        return [
+            'total' => $total,
+            'page' => $page,
+            'derniere' => $derniere,
+            'url_precedente' => $page > 1 ? $url($page - 1) : null,
+            'url_suivante' => $page < $derniere ? $url($page + 1) : null,
+        ];
     }
 }

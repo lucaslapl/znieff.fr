@@ -2,6 +2,7 @@
 import { Head, Link } from '@inertiajs/vue3';
 import Layout from '../../Components/Layout.vue';
 import BadgeFamille from '../../Components/BadgeFamille.vue';
+import SearchBar from '../../Components/SearchBar.vue';
 
 /**
  * Recherche transverse (itération d) : la searchbar de l'accueil mène
@@ -53,10 +54,7 @@ const abUrl = (insee) => `https://observatoire-abc.fr/commune/${insee}`;
             Une correspondance exacte mène directement à la fiche.
         </p>
 
-        <form method="get" action="/recherche" class="searchbar" style="margin-top:1.1rem">
-            <input type="search" name="q" :value="q" placeholder="Nom d'une commune, d'un département, n° de ZNIEFF ou nom d'espèce…" aria-label="Recherche" />
-            <button class="btn" type="submit">Rechercher</button>
-        </form>
+        <SearchBar action="/recherche" :value="q" style="margin-top:1.1rem" />
 
         <div v-if="dept" class="plate">
             <h2 style="margin-top:0">Département</h2>
@@ -196,6 +194,7 @@ const abUrl = (insee) => `https://observatoire-abc.fr/commune/${insee}`;
             <p class="liste-note">
                 Espèces du référentiel INPN (TAXREF) — chaque fiche liste les communes où le taxon est présent.
                 Les espèces sensibles ou confidentielles ne sont jamais recherchables ni affichées.
+                <Link :href="`/especes?q=${encodeURIComponent(q)}`">Toutes les espèces correspondantes →</Link>
             </p>
         </template>
     </Layout>

@@ -45,10 +45,19 @@ Route::get('/ap', [AireProtegeeController::class, 'index'])->name('ap.index');
 Route::get('/geologie', [GeologieController::class, 'index'])->name('geologie.index');
 Route::get('/habitats', [HabitatController::class, 'index'])->name('habitats.index');
 Route::get('/organismes', [OrganismeController::class, 'index'])->name('organismes.index');
+Route::get('/especes', [EspeceController::class, 'index'])->name('especes.index');
 
 // Recherche transverse (searchbar de l'accueil) : redirection vers la
 // fiche en cas de correspondance exacte, sinon résultats par section.
 Route::get('/recherche', [RechercheController::class, 'index'])->name('recherche.index');
+
+// Autocomplétion de la searchbar (liste déroulante dynamique, ≥ 3
+// lettres) : petit JSON borné (5 suggestions par section), mis en cache
+// 5 min, throttlé — jamais d'espèce sensible ni confidentielle (filtre
+// côté requête dans App\Support\Especes).
+Route::get('/recherche/suggestions', [RechercheController::class, 'suggestions'])
+    ->middleware('throttle:120,1')
+    ->name('recherche.suggestions');
 
 /*
 |--------------------------------------------------------------------------

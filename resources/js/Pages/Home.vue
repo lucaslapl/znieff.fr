@@ -1,6 +1,7 @@
 <script setup>
 import { Link } from '@inertiajs/vue3';
 import Layout from '../Components/Layout.vue';
+import SearchBar from '../Components/SearchBar.vue';
 
 /**
  * Accueil (itération d) : hero + searchbar (recherche transverse),
@@ -31,12 +32,9 @@ const nombre = (n) => n.toLocaleString('fr-FR');
                 et retrouvez son patrimoine naturel, les périmètres qui la concernent et
                 les documents de référence.
             </p>
-            <form class="searchbar" method="get" action="/recherche">
-                <input type="search" name="q" placeholder="Nom d'une commune, d'un département, n° de ZNIEFF ou nom d'espèce…" aria-label="Recherche" />
-                <button class="btn" type="submit">Rechercher</button>
-            </form>
+            <SearchBar action="/recherche" placeholder="Nom d'une commune, d'un département, n° de ZNIEFF ou nom d'espèce…" />
             <p class="hint">
-                Exemples : « Louviers », « Eure », « 8526 », « Pluvier doré ».
+                Exemples : « Louviers », « Eure », « 8526 », « Pluvier doré » — la liste des suggestions apparaît dès 3 lettres.
                 <Link :href="route('communes.index')" style="color:#ecd9a8">Parcourir par commune →</Link>
             </p>
         </section>

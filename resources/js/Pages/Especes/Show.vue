@@ -3,6 +3,7 @@ import { Head, Link, usePage } from '@inertiajs/vue3';
 import { computed } from 'vue';
 import Layout from '../../Components/Layout.vue';
 import ListePager from '../../Components/ListePager.vue';
+import { classeLr, estStatutListeRouge, libelleLr } from '../../especes/listeRouge.js';
 
 // Page fiche espèce (itération P1) : TAXREF v18 + statuts BDC v18 + ZNIEFF
 // déterminantes. SSR strict : toutes les props lues sont déclarées ici.
@@ -33,6 +34,10 @@ const presenceFr = computed(() => {
     const libelles = { P: 'présent', E: 'endémique', S: 'subendémique', I: 'introduit', B: 'occasionnel', D: 'douteux', A: 'absent', W: 'disparu', X: 'éteint' };
     return p ? (libelles[p] ?? p) : null;
 });
+
+// Ligne de statut = Liste rouge UICN (BDC : LRN/LRE/LRM/LRR…) avec un code
+// → badge colore (classe lr-cr, lr-en…) au lieu du simple code en hint.
+const estListeRouge = (s, g) => s.code !== null && estStatutListeRouge(s.type, g.regroupement);
 </script>
 
 <template>
@@ -73,8 +78,9 @@ const presenceFr = computed(() => {
                         <tbody>
                             <tr v-for="s in g.statuts" :key="s.type + '|' + (s.territoire ?? '')">
                                 <td>
+                                    <span v-if="estListeRouge(s, g)" class="badge" :class="classeLr(s.code)" :title="libelleLr(s.code)">{{ s.code }}</span>
                                     <strong>{{ s.type_label }}</strong>
-                                    <span v-if="s.code" class="hint"> · {{ s.code }}</span>
+                                    <span v-if="s.code && !estListeRouge(s, g)" class="hint"> · {{ s.code }}</span>
                                     <template v-if="s.label"><br /><small>{{ s.label }}</small></template>
                                     <template v-if="s.remarque"><br /><small class="hint">{{ s.remarque }}</small></template>
                                 </td>

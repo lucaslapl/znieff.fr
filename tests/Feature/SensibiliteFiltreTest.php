@@ -93,4 +93,5 @@ class SensibiliteFiltreTest extends TestCase
             ->where('groupes', fn ($g) => ! str_contains((string) json_encode($g), 'Mammifères'))
         );
     }
+
 }

@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\ReferentielImport;
 use App\Services\InpnImportService;
+use App\Support\Especes;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Tests\Concerns\SemeFiches;
@@ -77,6 +78,33 @@ class ImportBdcTest extends TestCase
 
         // 60400 : présent en outre-mer (GF=P).
         $this->assertTrue((bool) DB::table('taxons_ref')->where('cd_ref', 60400)->value('present_om'));
+    }
+
+    public function test_resout_les_cd_ref_synonymes_vers_le_taxon_accepte(): void
+    {
+        // Fixture TAXREF : cd_nom 432100 = synonyme dont le taxon accepté
+        // est 3161 (cf. Utricularia neglecta → Utricularia australis
+        // dans le vrai TAXREF v18). Une citation sous le code mort est
+        // réorientée vers l'accepté : sans ça, /espece/432100 = 404.
+        DB::table('znieff_especes')->insert([
+            ['zonage_id' => '230009093', 'cd_ref' => 432100, 'nom_cite' => '<i>Utricularia neglecta</i> auct.', 'groupe_taxo' => 'Angiospermes', 'determinante' => true, 'confidentielle' => false],
+        ]);
+        DB::table('natura_especes')->insert([
+            ['site_code' => 'FR2300128', 'code_n2000' => 'X100', 'cd_ref' => 432100, 'nom_scientifique' => 'Utricularia neglecta', 'nom_vernaculaire' => null, 'taxgroup' => 'Angiospermes', 'annexe_ii' => false, 'annexe_1' => false, 'prioritaire' => false, 'presences' => null],
+        ]);
+
+        $retour = app(InpnImportService::class)->importBdc();
+
+        $this->assertSame(1, $retour['synonymes']);
+        $this->assertSame(2, $retour['lignes_resolues']);
+        $this->assertSame(0, DB::table('znieff_especes')->where('cd_ref', 432100)->count());
+        $this->assertSame(0, DB::table('natura_especes')->where('cd_ref', 432100)->count());
+        $this->assertSame(1, DB::table('znieff_especes')->where('cd_ref', 3161)->where('nom_cite', 'like', '%Utricularia%')->count());
+        $this->assertSame(1, DB::table('natura_especes')->where('cd_ref', 3161)->where('nom_scientifique', 'Utricularia neglecta')->count());
+
+        // La fiche publique reste branchée sur le seul taxon accepté.
+        $this->assertTrue(Especes::especeVisible(3161));
+        $this->assertFalse(Especes::especeVisible(432100));
     }
 
     public function test_journalise_le_bdc_importe(): void

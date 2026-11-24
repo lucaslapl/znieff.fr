@@ -95,7 +95,7 @@ class PortailImportInpnCommand extends Command
         if (in_array($source, ['bdc', 'all'], true)) {
             $this->info('Statuts BDC v18 + taxons TAXREF v18 (périmètre)…');
             $retour = $inpn->importBdc($progression);
-            $this->afficher('bdc', $retour, ['statuts', 'taxons']);
+            $this->afficher('bdc', $retour, ['statuts', 'taxons', 'synonymes', 'lignes_resolues']);
         }
 
         if (in_array($source, ['inpg', 'all'], true)) {

@@ -1280,8 +1280,16 @@ class InpnImportService
      * SENSDEP (la sensibilité ne s'affiche JAMAIS — elle ne filtre que côté
      * requête, App\Support\Especes) et les territoires communaux INSEEC.
      *
+     * Les cd_ref CITÉS par REF_ESPECE / FSD peuvent être d'anciens codes
+     * TAXREF devenus synonymes (ex. Utricularia neglecta = cd_nom 128307,
+     * taxon accepté 128316 Utricularia australis) : après extraction de
+     * taxons_ref (taxons acceptés seuls), les tables d'espèces sont
+     * réorientées vers l'accepté (resoudreSynonymes) et le périmètre des
+     * statuts BDC est étendu aux acceptés — sinon les listes lieraient des
+     * fiches /espece/{synonyme} inexistantes.
+     *
      * @param  callable(int): void  $tick
-     * @return array{statuts: int, taxons: int}
+     * @return array{statuts: int, taxons: int, synonymes: int, lignes_resolues: int}
      */
     public function importBdc(?callable $tick = null): array
     {
@@ -1289,13 +1297,24 @@ class InpnImportService
         if ($cdRefs === []) {
             Log::warning('Aucun cd_ref dans le périmètre (znieff_especes / natura_especes vide) : BDC non importé.');
 
-            return ['statuts' => 0, 'taxons' => 0];
+            return ['statuts' => 0, 'taxons' => 0, 'synonymes' => 0, 'lignes_resolues' => 0];
         }
 
+        $extraction = $this->importTaxonsRef($cdRefs, $tick);
+        // Les statuts BDC ne référencent que des cd_ref acceptés : on étend
+        // le périmètre aux acceptés des synonymes cités avant l'extraction.
+        foreach ($extraction['synonymes'] as $accepte) {
+            $cdRefs[(string) $accepte] = true;
+        }
         $nbStatuts = $this->importEspeceStatuts($cdRefs, $tick);
-        $nbTaxons = $this->importTaxonsRef($cdRefs, $tick);
+        $resolues = $this->resoudreSynonymes($extraction['synonymes']);
 
-        return ['statuts' => $nbStatuts, 'taxons' => $nbTaxons];
+        return [
+            'statuts' => $nbStatuts,
+            'taxons' => $extraction['taxons'],
+            'synonymes' => count($extraction['synonymes']),
+            'lignes_resolues' => $resolues,
+        ];
     }
 
     /**
@@ -1398,16 +1417,22 @@ class InpnImportService
      * cd_ref du périmètre : nom valide, groupes INPN, habitat (libellé via
      * habitats_note.csv), présence France / outre-mer, URL fiche INPN.
      *
+     * Collecte au passage les SYNONYMES du périmètre : un cd_ref cité par
+     * znieff/natura qui n'est pas son propre taxon accepté (TAXREF redirige
+     * cd_nom → cd_ref) — importBdc s'en sert pour réorienter les tables
+     * d'espèces vers l'accepté.
+     *
      * @param  array<string, true>  $cdRefs
      * @param  callable(int): void  $tick
+     * @return array{taxons: int, synonymes: array<int, int>} synonymes : cd_ref cité => cd_ref accepté
      */
-    private function importTaxonsRef(array $cdRefs, ?callable $tick): int
+    private function importTaxonsRef(array $cdRefs, ?callable $tick): array
     {
         $fichier = $this->fichierTaxrefComplet();
         if ($fichier === null) {
             Log::warning('TAXREFv*.txt introuvable : taxons_ref non importé (fiches espèces en repli sur znieff_especes).');
 
-            return 0;
+            return ['taxons' => 0, 'synonymes' => []];
         }
 
         $habitats = $this->carteHabitats();
@@ -1417,8 +1442,16 @@ class InpnImportService
         $chunk = [];
         $nb = 0;
         $vus = []; // TAXREF contient plusieurs lignes par cd_ref (synonymes) : PK = cd_ref, on garde la première
+        $synonymes = []; // cd_ref cité dans le périmètre => cd_ref accepté
         foreach ($this->csv->iterate($fichier, "\t") as $rec) {
             $cd = trim((string) ($rec['cd_ref'] ?? ''));
+            // Synonyme ? le cd_nom cité par les tables d'espèces est distinct
+            // de son taxon accepté (ligne du fichier : cd_nom ≠ cd_ref).
+            $cdNom = trim((string) ($rec['cd_nom'] ?? ''));
+            if ($cd !== '' && $cdNom !== '' && $cdNom !== $cd
+                && isset($cdRefs[$cdNom]) && ! isset($synonymes[(int) $cdNom])) {
+                $synonymes[(int) $cdNom] = (int) $cd;
+            }
             if ($cd === '' || ! isset($cdRefs[$cd]) || isset($vus[$cd])) {
                 continue;
             }
@@ -1456,6 +1489,29 @@ class InpnImportService
         }
 
         $this->registrer('taxref', $nb, $this->versionTaxref($fichier));
+
+        return ['taxons' => $nb, 'synonymes' => $synonymes];
+    }
+
+    /**
+     * Réoriente les cd_ref cités des tables d'espèces vers leur taxon
+     * accepté TAXREF. Sans cela, les listes lieraient des fiches
+     * /espece/{cd_ref} inexistantes (un synonyme n'a pas de fiche : le
+     * contenu des fiches part de taxons_ref, taxons acceptés seuls).
+     *
+     * Les autres attributs (nom_cite, déterminante, confidentielle…) sont
+     * conservés : le filtre absolu App\Support\Especes garde son périmètre.
+     *
+     * @param  array<int, int>  $mapSynonymes  cd_ref cité => cd_ref accepté
+     * @return int nombre de lignes mises à jour
+     */
+    private function resoudreSynonymes(array $mapSynonymes): int
+    {
+        $nb = 0;
+        foreach ($mapSynonymes as $cite => $accepte) {
+            $nb += DB::table('znieff_especes')->where('cd_ref', $cite)->update(['cd_ref' => $accepte]);
+            $nb += DB::table('natura_especes')->where('cd_ref', $cite)->update(['cd_ref' => $accepte]);
+        }
 
         return $nb;
     }

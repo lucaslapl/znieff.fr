@@ -30,8 +30,12 @@ final class Especes
      * le filtre reste posé côté serveur, la pagination avec).
      * `vern` : nom vernaculaire officiel TAXREF (MNHN) ; null quand le
      * référentiel n'en a pas — la fiche retombe alors sur le latin.
+     * `fiche` : le taxon a-t-il une page publique /espece/{cd_ref} ? Non
+     * quand il est sensible dans un AUTRE département (masqué globalement,
+     * pas de localisation indirecte) ou absent de taxons_ref : la liste ne
+     * rend pas de lien mort.
      *
-     * @return array{total: int, page: int, derniere: int, items: array<int, array{cd_ref: int, nom: string, vern: ?string, groupe: string}>}
+     * @return array{total: int, page: int, derniere: int, items: array<int, array{cd_ref: int, nom: string, vern: ?string, groupe: string, fiche: bool}>}
      */
     public static function especesZonagePagine(string $zonageId, int $page, int $parPage, ?string $groupe = null): array
     {
@@ -60,13 +64,25 @@ final class Especes
             ->orderBy('nom_cite')
             ->forPage($page, $parPage)
             ->get(['cd_ref', 'nom_cite', 'nom_vernaculaire', 'groupe_taxo'])
-            ->map(fn ($r) => [
+            ->map(fn ($r) => (object) [
                 'cd_ref' => (int) $r->cd_ref,
                 'nom' => self::textePur((string) $r->nom_cite),
                 'vern' => $r->nom_vernaculaire !== null && $r->nom_vernaculaire !== '' ? (string) $r->nom_vernaculaire : null,
                 'groupe' => self::groupe($r->groupe_taxo),
             ])
             ->all();
+
+        // Fiches publiques : une seule requête pour la page (25 cd_ref) —
+        // hors taxons sensibles (référentiel SINP, tous départements) et
+        // confidentiels ; ces espèces restent listées mais non cliquables.
+        $fiches = $items === [] ? [] : array_flip(
+            self::requeteVisibles()
+                ->whereIn('cd_ref', array_map(fn ($r) => $r->cd_ref, $items))
+                ->pluck('cd_ref')
+                ->map(fn ($v) => (int) $v)
+                ->all(),
+        );
+        $items = array_map(fn ($r) => (array) $r + ['fiche' => isset($fiches[$r->cd_ref])], $items);
 
         return [
             'total' => $total,
